@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+
+  --color-bg-sidebar: #111113;
+  --color-bg-canvas: #151517;
+  --color-surface-card: #212123;
+  --color-surface-container: #1F1F21;
+  --color-surface-elevated: #28282A;
+  --color-surface-hover: #303033;
+  --color-surface-active: #353538;
+
+  --color-border-default: #343436;
+  --color-border-subtle: #29292B;
+
+  --color-text-primary: #F5F5F5;
+  --color-text-secondary: #A1A1A6;
+  --color-text-muted: #74747A;
+  --color-text-disabled: #55555A;
+
+  --color-primary: #4EDEA3;
+  --color-primary-container: #10B981;
+  --color-on-primary: #003824;
+
+  --color-tag-organize: #3B82F6;
+  --color-tag-optimize: #F59E0B;
+  --color-tag-convert: #8B5CF6;
+  --color-tag-security: #06B6D4;
+
+  --color-status-success: #22C55E;
+  --color-status-danger: #EF4444;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-canvas);
+    color: var(--color-text-primary);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" on;
+}
+
+/* Subtle Obsidian Slate Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-active);
+}

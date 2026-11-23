@@ -1,0 +1,101 @@
+name: Release Windows Installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Build & Package (Windows x64)
+    runs-on: windows-latest
+
+    env:
+      LLAMA_CPP_TAG: b12651
+      LLAMA_CPP_ZIP: llama-b12651-bin-win-vulkan-x64.zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Download & stage pinned llama.cpp Vulkan binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zipPath = Join-Path $env:RUNNER_TEMP $env:LLAMA_CPP_ZIP
+          $extractDir = Join-Path $env:RUNNER_TEMP "llama_extract"
+          $binDest = "src-tauri/resources/bin"
+
+          $url = "https://github.com/ggml-org/llama.cpp/releases/download/$($env:LLAMA_CPP_TAG)/$($env:LLAMA_CPP_ZIP)"
+          Write-Host "Downloading $url ..."
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+
+          if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+          New-Item -ItemType Directory -Force -Path $binDest | Out-Null
+          Get-ChildItem -Path $extractDir -Recurse -File |
+            Where-Object { $_.Extension -in ".dll", ".exe" -and ($_.Name -eq "llama-server.exe" -or $_.Extension -eq ".dll") } |
+            ForEach-Object { Copy-Item -Path $_.FullName -Destination $binDest -Force }
+
+          if (-not (Test-Path (Join-Path $binDest "llama-server.exe"))) {
+            throw "Failed to stage llama-server.exe into $binDest"
+          }
+          Get-ChildItem $binDest | Select-Object Name, Length
+
+      - name: Run frontend unit tests & production build
+        run: |
+          npm run test
+          npm run build
+
+      - name: Run Rust unit & integration tests (non-GPU subset)
+        run: >
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --
+          --skip spike_test_1_dxgi_and_system_ram
+          --skip spike_test_2_vulkan_and_llama_list_devices
+          --skip live_scan_hardware_succeeds
+
+      - name: Build Windows NSIS & MSI installers and create Draft Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          releaseName: "Osmium ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}"
+          releaseBody: |
+            ## Osmium — Local AI Translator (Windows x64)
+
+            ### Included Installers
+            - **NSIS Installer (`.exe`):** Standard Windows setup wizard
+            - **MSI Installer (`.msi`):** Windows Installer package
+
+            Bundled with `llama.cpp` `${{ env.LLAMA_CPP_TAG }}` (`llama-server.exe` + Vulkan & CPU runtime DLLs).
+            No telemetry or background network egress. Models (`Qwen 3 8B` / `4B`) can be downloaded inside the app on demand or imported from existing local `.gguf` files.
+          releaseDraft: true
+          prerelease: false

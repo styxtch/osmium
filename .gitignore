@@ -1,0 +1,26 @@
+# Dependencies & Build Outputs
+node_modules/
+dist/
+.vite/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Bundled AI Binaries & Models
+src-tauri/resources/bin/*.exe
+src-tauri/resources/bin/*.dll
+src-tauri/resources/bin/*.zip
+*.gguf
+*.part
+
+# Runtime Data & Logs
+osmium.db*
+logs/
+
+# OS & Editor Junk
+.DS_Store
+Thumbs.db
+
+# Local Planning Docs
+docs/
