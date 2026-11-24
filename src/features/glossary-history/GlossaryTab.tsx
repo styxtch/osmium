@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Check, Edit2, Plus, Search, Trash2, X } from "lucide-react";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import {
+  Check,
+  Download,
+  Edit2,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import type { GlossaryEntry } from "../../lib/ipc";
 import { useGlossaryHistoryStore } from "../../stores/useGlossaryHistoryStore";
 
@@ -9,6 +19,7 @@ export function GlossaryTab() {
     (s) => s.selectedGlossaryId
   );
   const entries = useGlossaryHistoryStore((s) => s.entries);
+  const notice = useGlossaryHistoryStore((s) => s.notice);
 
   const selectGlossary = useGlossaryHistoryStore((s) => s.selectGlossary);
   const createGlossary = useGlossaryHistoryStore((s) => s.createGlossary);
@@ -16,6 +27,9 @@ export function GlossaryTab() {
   const deleteGlossary = useGlossaryHistoryStore((s) => s.deleteGlossary);
   const upsertEntry = useGlossaryHistoryStore((s) => s.upsertEntry);
   const deleteEntry = useGlossaryHistoryStore((s) => s.deleteEntry);
+  const importGlossary = useGlossaryHistoryStore((s) => s.importGlossary);
+  const exportGlossary = useGlossaryHistoryStore((s) => s.exportGlossary);
+  const clearNotice = useGlossaryHistoryStore((s) => s.clearNotice);
 
   const [newCollectionName, setNewCollectionName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -59,6 +73,43 @@ export function GlossaryTab() {
     setCaseSensitive(entry.case_sensitive);
   };
 
+  const activeGlossary =
+    glossaries.find((g) => g.id === selectedGlossaryId) ?? null;
+
+  const handleImportFile = async () => {
+    const selected = await open({
+      multiple: false,
+      title: "Import Glossary (.json or .csv)",
+      filters: [
+        {
+          name: "Glossary Files (.json, .csv)",
+          extensions: ["json", "csv"],
+        },
+      ],
+    });
+    if (typeof selected === "string" && selected.trim()) {
+      await importGlossary(selected);
+    }
+  };
+
+  const handleExportFile = async () => {
+    if (!activeGlossary) return;
+    const safeName =
+      activeGlossary.name.replace(/[<>:"/\\|?*]+/g, "_").trim() || "glossary";
+    const destPath = await save({
+      title: "Export Glossary",
+      defaultPath: `${safeName}.json`,
+      filters: [
+        { name: "JSON Glossary (.json)", extensions: ["json"] },
+        { name: "CSV (UTF-8) (.csv)", extensions: ["csv"] },
+      ],
+    });
+    if (typeof destPath === "string" && destPath.trim()) {
+      const format = destPath.toLowerCase().endsWith(".csv") ? "csv" : "json";
+      await exportGlossary(activeGlossary.id, destPath, format);
+    }
+  };
+
   const filteredEntries = entries.filter((item) => {
     const q = entrySearch.trim().toLowerCase();
     if (!q) return true;
@@ -69,17 +120,47 @@ export function GlossaryTab() {
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-      {/* Left: Glossary Collections */}
-      <section className="lg:col-span-4 rounded-xl border border-border-default bg-surface-card p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-text-primary">
-            Subtitle Glossary Collections
-          </h2>
-          <p className="mt-1 text-xs text-text-muted">
-            Linked to Subtitle Translator so character names, titles, and lore terms remain consistent across episodes.
-          </p>
+    <div className="space-y-4">
+      {notice && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-2 rounded-xl border border-primary-container/40 bg-primary-container/10 px-4 py-2.5 text-xs text-primary"
+        >
+          <span>{notice}</span>
+          <button
+            type="button"
+            onClick={clearNotice}
+            aria-label="Dismiss glossary notice"
+            className="rounded p-1 hover:bg-surface-hover cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Left: Glossary Collections */}
+        <section className="lg:col-span-4 rounded-xl border border-border-default bg-surface-card p-4 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-text-primary">
+                Subtitle Glossary Collections
+              </h2>
+              <p className="mt-1 text-xs text-text-muted">
+                Linked to Subtitle Translator so character names, titles, and lore terms remain consistent across episodes.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleImportFile()}
+              title="Import .json or .csv glossary"
+              aria-label="Import glossary file"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover cursor-pointer"
+            >
+              <Upload className="h-3.5 w-3.5 text-primary" />
+              Import
+            </button>
+          </div>
 
         <form onSubmit={(e) => void handleCreateCollection(e)} className="flex gap-2">
           <input
@@ -200,6 +281,23 @@ export function GlossaryTab() {
           </div>
         ) : (
           <>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-text-primary">
+                {activeGlossary?.name} ({entries.length} terms)
+              </div>
+              <button
+                type="button"
+                disabled={entries.length === 0}
+                onClick={() => void handleExportFile()}
+                title="Export glossary as .json or .csv"
+                aria-label="Export selected glossary"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-elevated px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-hover disabled:opacity-40 cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5 text-primary" />
+                Export (.json / .csv)
+              </button>
+            </div>
+
             <form
               onSubmit={(e) => void handleSaveEntry(e)}
               className="grid grid-cols-1 md:grid-cols-12 gap-2.5 rounded-lg border border-border-subtle bg-surface-container p-3"
@@ -208,14 +306,14 @@ export function GlossaryTab() {
                 type="text"
                 value={sourceTerm}
                 onChange={(e) => setSourceTerm(e.target.value)}
-                placeholder="EN Source Term (e.g. Sandevistan)"
+                placeholder="Source Term (e.g. Sandevistan)"
                 className="md:col-span-4 rounded-lg border border-border-default bg-surface-elevated px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:border-primary-container focus:outline-none"
               />
               <input
                 type="text"
                 value={targetTerm}
                 onChange={(e) => setTargetTerm(e.target.value)}
-                placeholder="ID Target Term (e.g. Sandevistan)"
+                placeholder="Target Term (e.g. Sandevistan)"
                 className="md:col-span-4 rounded-lg border border-border-default bg-surface-elevated px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:border-primary-container focus:outline-none"
               />
               <label className="md:col-span-2 flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none">
@@ -272,8 +370,8 @@ export function GlossaryTab() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-surface-container text-text-secondary">
                     <tr>
-                      <th className="px-3 py-2 font-medium">EN Term</th>
-                      <th className="px-3 py-2 font-medium">ID Target</th>
+                      <th className="px-3 py-2 font-medium">Source Term</th>
+                      <th className="px-3 py-2 font-medium">Target Term</th>
                       <th className="px-3 py-2 font-medium">Matching</th>
                       <th className="px-3 py-2 text-right font-medium">Actions</th>
                     </tr>
@@ -321,6 +419,7 @@ export function GlossaryTab() {
           </>
         )}
       </section>
+      </div>
     </div>
   );
 }

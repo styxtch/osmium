@@ -12,11 +12,17 @@ interface EngineState {
   telemetry: EngineTelemetry | null;
   vramUsedMb: number;
   vramTotalMb: number;
+  gpuTempC: number | null;
+  gpuClockMhz: number | null;
+  ramUsedGb: number;
+  ramTotalGb: number;
   scanning: boolean;
+  unloading: boolean;
   error: AppErrorPayload | null;
   engineAlert: AppErrorPayload | null;
   scanHardware: () => Promise<void>;
   refreshTelemetry: () => Promise<void>;
+  unloadModel: () => Promise<void>;
   setDiagnosticsOpen: (open: boolean) => Promise<void>;
   setEngineAlert: (alert: AppErrorPayload | null) => void;
   dismissAlert: () => void;
@@ -28,7 +34,12 @@ export const useEngineStore = create<EngineState>((set) => ({
   telemetry: null,
   vramUsedMb: 0,
   vramTotalMb: 0,
+  gpuTempC: null,
+  gpuClockMhz: null,
+  ramUsedGb: 0,
+  ramTotalGb: 0,
   scanning: false,
+  unloading: false,
   error: null,
   engineAlert: null,
 
@@ -40,6 +51,9 @@ export const useEngineStore = create<EngineState>((set) => ({
         hardware,
         vramUsedMb: hardware.current_vram_usage_mb,
         vramTotalMb: hardware.dedicated_vram_mb,
+        gpuTempC: hardware.thermal_c ?? state.gpuTempC,
+        gpuClockMhz: hardware.clock_mhz ?? state.gpuClockMhz,
+        ramTotalGb: hardware.system_ram_gb || state.ramTotalGb,
         scanning: false,
         engineAlert:
           !hardware.vulkan_supported && !state.engineAlert
@@ -68,6 +82,21 @@ export const useEngineStore = create<EngineState>((set) => ({
     }
   },
 
+  unloadModel: async () => {
+    set({ unloading: true, error: null });
+    try {
+      const telemetry = await ipc.unloadSidecarModel();
+      set({
+        telemetry,
+        vramUsedMb: telemetry.vram_used_mb,
+        vramTotalMb: telemetry.vram_total_mb,
+        unloading: false,
+      });
+    } catch (err) {
+      set({ error: parseAppError(err), unloading: false });
+    }
+  },
+
   setDiagnosticsOpen: async (open) => {
     try {
       await ipc.setDiagnosticsTabOpen(open);
@@ -81,10 +110,18 @@ export const useEngineStore = create<EngineState>((set) => ({
 
   initEngineListeners: async () => {
     const unlistenVram = await ipc.onVramTick((tick) => {
-      set({
+      set((state) => ({
         vramUsedMb: tick.vram_used_mb,
         vramTotalMb: tick.vram_total_mb,
-      });
+        gpuTempC:
+          tick.gpu_temp_c !== undefined ? tick.gpu_temp_c : state.gpuTempC,
+        gpuClockMhz:
+          tick.gpu_clock_mhz !== undefined
+            ? tick.gpu_clock_mhz
+            : state.gpuClockMhz,
+        ramUsedGb: tick.ram_used_gb ?? state.ramUsedGb,
+        ramTotalGb: tick.ram_total_gb ?? state.ramTotalGb,
+      }));
     });
     const unlistenTel = await ipc.onEngineTelemetry((telemetry) => {
       set({

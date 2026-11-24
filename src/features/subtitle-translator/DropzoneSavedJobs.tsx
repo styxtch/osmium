@@ -19,6 +19,11 @@ import {
   type SubtitleGenre,
   type SubtitleJobSummary,
 } from "../../lib/ipc";
+import {
+  formatLanguagePair,
+  SOURCE_LANGUAGES,
+  TARGET_LANGUAGES,
+} from "../../lib/languages";
 
 interface DropzoneSavedJobsProps {
   jobs: SubtitleJobSummary[];
@@ -27,6 +32,8 @@ interface DropzoneSavedJobsProps {
   isParsingFile: boolean;
   onImportFile: (
     filePath: string,
+    sourceLang: string,
+    targetLang: string,
     genre: SubtitleGenre,
     glossaryId: string | null,
     tagShieldEnabled: boolean
@@ -52,10 +59,29 @@ export function DropzoneSavedJobs({
   onSelectJob,
   onDeleteJob,
 }: DropzoneSavedJobsProps) {
+  const [sourceLang, setSourceLang] = useState<string>("auto");
+  const [targetLang, setTargetLang] = useState<string>("id");
   const [genre, setGenre] = useState<SubtitleGenre>("general");
   const [glossaryId, setGlossaryId] = useState<string>("");
   const [tagShieldEnabled, setTagShieldEnabled] = useState<boolean>(true);
   const [isDragHover, setIsDragHover] = useState<boolean>(false);
+
+  const handleSourceLangChange = (nextSrc: string) => {
+    if (nextSrc !== "auto" && nextSrc === targetLang) {
+      setTargetLang(
+        sourceLang !== "auto" ? sourceLang : nextSrc === "en" ? "id" : "en"
+      );
+    }
+    setSourceLang(nextSrc);
+  };
+
+  const handleTargetLangChange = (nextDst: string) => {
+    if (nextDst === "auto") return;
+    if (sourceLang !== "auto" && nextDst === sourceLang) {
+      setSourceLang(targetLang);
+    }
+    setTargetLang(nextDst);
+  };
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -73,6 +99,8 @@ export function DropzoneSavedJobs({
             if (droppedPath) {
               void onImportFile(
                 droppedPath,
+                sourceLang,
+                targetLang,
                 genre,
                 glossaryId || null,
                 tagShieldEnabled
@@ -92,7 +120,7 @@ export function DropzoneSavedJobs({
     return () => {
       unlisten?.();
     };
-  }, [genre, glossaryId, onImportFile, tagShieldEnabled]);
+  }, [sourceLang, targetLang, genre, glossaryId, onImportFile, tagShieldEnabled]);
 
   const handleBrowseFile = async () => {
     const selected = await open({
@@ -108,6 +136,8 @@ export function DropzoneSavedJobs({
     if (typeof selected === "string" && selected.trim()) {
       await onImportFile(
         selected,
+        sourceLang,
+        targetLang,
         genre,
         glossaryId || null,
         tagShieldEnabled
@@ -146,7 +176,43 @@ export function DropzoneSavedJobs({
       {/* Import Options + Dropzone Card */}
       <div className="bg-surface-card border border-border-default rounded-xl p-5 space-y-4">
         {/* Configuration before opening file */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <label className="flex flex-col gap-1.5 text-xs">
+            <span className="text-text-secondary font-medium">
+              Source Language
+            </span>
+            <select
+              aria-label="Subtitle Source Language"
+              value={sourceLang}
+              onChange={(e) => handleSourceLangChange(e.target.value)}
+              className="bg-surface-elevated border border-border-default rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary"
+            >
+              {SOURCE_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-xs">
+            <span className="text-text-secondary font-medium">
+              Target Language
+            </span>
+            <select
+              aria-label="Subtitle Target Language"
+              value={targetLang}
+              onChange={(e) => handleTargetLangChange(e.target.value)}
+              className="bg-surface-elevated border border-border-default rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary"
+            >
+              {TARGET_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="flex flex-col gap-1.5 text-xs">
             <span className="text-text-secondary font-medium">
               Content Genre
@@ -295,6 +361,9 @@ export function DropzoneSavedJobs({
                       </span>
                       <span className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border-default text-[10px] font-semibold uppercase text-tag-organize">
                         {job.format}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border-default text-[10px] font-semibold text-primary">
+                        {formatLanguagePair(job.source_lang, job.target_lang)}
                       </span>
                       <span className="px-1.5 py-0.5 rounded bg-surface-elevated text-[10px] font-medium capitalize text-text-secondary">
                         {job.genre}

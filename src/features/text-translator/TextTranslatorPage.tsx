@@ -1,10 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { AlertCircle, Captions, Cpu, Lock, X } from "lucide-react";
 import { useEngineStore } from "../../stores/useEngineStore";
 import { useModelsStore } from "../../stores/useModelsStore";
 import { useNavigationStore } from "../../stores/useNavigationStore";
+import { useTtsStore } from "../../stores/useTtsStore";
 import {
+  buildTranslationKey,
   MAX_TEXT_CHARS,
   useTextTranslatorStore,
 } from "../../stores/useTextTranslatorStore";
@@ -20,8 +22,14 @@ export function TextTranslatorPage() {
 
   const sourceText = useTextTranslatorStore((s) => s.sourceText);
   const translatedText = useTextTranslatorStore((s) => s.translatedText);
+  const sourceLang = useTextTranslatorStore((s) => s.sourceLang);
+  const detectedSourceLang = useTextTranslatorStore(
+    (s) => s.detectedSourceLang
+  );
+  const targetLang = useTextTranslatorStore((s) => s.targetLang);
   const tone = useTextTranslatorStore((s) => s.tone);
   const autoTranslate = useTextTranslatorStore((s) => s.autoTranslate);
+  const lastTranslatedKey = useTextTranslatorStore((s) => s.lastTranslatedKey);
   const isStreaming = useTextTranslatorStore((s) => s.isStreaming);
   const error = useTextTranslatorStore((s) => s.error);
   const translateNow = useTextTranslatorStore((s) => s.translateNow);
@@ -30,29 +38,44 @@ export function TextTranslatorPage() {
     (s) => s.persistCurrentToHistory
   );
   const clearError = useTextTranslatorStore((s) => s.clearError);
+  const ttsNotice = useTtsStore((s) => s.notice);
+  const clearTtsNotice = useTtsStore((s) => s.clearNotice);
 
   const hasReadyModel = installed.some((m) => m.is_active && m.file_exists);
   const subtitleLocked = telemetry?.busy_by === "subtitle";
   const controlsDisabled = !hasReadyModel || subtitleLocked;
 
-  const isFirstAutoRun = useRef(true);
-
-  // 600ms debounce auto-translate when enabled
+  // 600ms debounce auto-translate when enabled (skip already-translated state on tab switch)
   useEffect(() => {
-    if (isFirstAutoRun.current) {
-      isFirstAutoRun.current = false;
-      return;
-    }
     if (!autoTranslate || controlsDisabled) return;
     if (!sourceText.trim()) return;
     if (Array.from(sourceText).length > MAX_TEXT_CHARS) return;
+
+    const currentKey = buildTranslationKey(
+      sourceText,
+      sourceLang,
+      detectedSourceLang,
+      targetLang,
+      tone
+    );
+    if (currentKey === lastTranslatedKey) return;
 
     const timer = window.setTimeout(() => {
       void translateNow();
     }, 600);
 
     return () => window.clearTimeout(timer);
-  }, [sourceText, tone, autoTranslate, controlsDisabled, translateNow]);
+  }, [
+    sourceText,
+    sourceLang,
+    detectedSourceLang,
+    targetLang,
+    tone,
+    autoTranslate,
+    lastTranslatedKey,
+    controlsDisabled,
+    translateNow,
+  ]);
 
   // 3s idle auto-save to text_history (anti-spam)
   useEffect(() => {
@@ -163,6 +186,26 @@ export function TextTranslatorPage() {
             className="rounded-lg p-1 hover:bg-surface-hover cursor-pointer"
           >
             <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {ttsNotice && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-xl border border-tag-optimize/40 bg-tag-optimize/10 px-4 py-2.5 text-xs text-tag-optimize"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{ttsNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearTtsNotice}
+            aria-label="Dismiss voice notice"
+            className="rounded-lg p-1 hover:bg-surface-hover cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}

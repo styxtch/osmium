@@ -78,6 +78,30 @@ fn validate_and_normalize_settings(mut settings: AppSettings) -> AppResult<AppSe
             ));
         }
     }
+    if !matches!(settings.tts_provider.as_str(), "native" | "neural") {
+        return Err(AppError::InvalidInput(
+            "tts_provider must be 'native' or 'neural'".to_string(),
+        ));
+    }
+    if !settings.tts_rate.is_finite() || !(0.5..=2.0).contains(&settings.tts_rate) {
+        return Err(AppError::InvalidInput(
+            "tts_rate must be between 0.5 and 2.0".to_string(),
+        ));
+    }
+    let parsed_voice_prefs: serde_json::Value =
+        serde_json::from_str(&settings.tts_voice_prefs_json).map_err(|_| {
+            AppError::InvalidInput("tts_voice_prefs_json must be valid JSON".to_string())
+        })?;
+    if !parsed_voice_prefs.is_object() {
+        return Err(AppError::InvalidInput(
+            "tts_voice_prefs_json must be a JSON object".to_string(),
+        ));
+    }
+    if settings.auto_idle_unload_minutes > 120 {
+        return Err(AppError::InvalidInput(
+            "auto_idle_unload_minutes maximum is 120".to_string(),
+        ));
+    }
 
     let model_dir = disk::validate_user_dir(&PathBuf::from(&settings.default_model_dir))?;
     let export_dir = disk::validate_user_dir(&PathBuf::from(&settings.default_export_dir))?;
@@ -101,6 +125,10 @@ mod tests {
             backend_override: "auto".to_string(),
             ctx_size_override: "4096".to_string(),
             gpu_layers_override: "99".to_string(),
+            tts_provider: "native".to_string(),
+            tts_rate: 1.0,
+            tts_voice_prefs_json: "{}".to_string(),
+            auto_idle_unload_minutes: 10,
         };
         assert!(validate_and_normalize_settings(valid.clone()).is_ok());
 
@@ -109,6 +137,12 @@ mod tests {
             ..valid.clone()
         };
         assert!(validate_and_normalize_settings(bad_ctx).is_err());
+
+        let bad_tts_rate = AppSettings {
+            tts_rate: 5.0,
+            ..valid.clone()
+        };
+        assert!(validate_and_normalize_settings(bad_tts_rate).is_err());
 
         let bad_dir = AppSettings {
             default_model_dir: "C:\\Windows\\System32".to_string(),

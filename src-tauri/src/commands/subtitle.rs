@@ -7,6 +7,7 @@ use crate::core::subtitle::glossary_matcher::match_glossary_terms;
 use crate::core::subtitle::parse_subtitle_file;
 use crate::core::subtitle::tag_shield::shield_tags;
 use crate::core::subtitle::types::CueType;
+use crate::core::translator::languages::{normalize_source_lang, normalize_target_lang};
 use crate::core::translator::prompts::Genre;
 use crate::db::models::{
     NewSubtitleCue, SubtitleCueDto, SubtitleJobRecord, SubtitleJobSummary,
@@ -19,6 +20,8 @@ use crate::state::AppState;
 pub async fn parse_and_create_subtitle_job(
     state: State<'_, AppState>,
     file_path: String,
+    source_lang: Option<String>,
+    target_lang: Option<String>,
     genre: Option<String>,
     glossary_id: Option<String>,
     tag_shield_enabled: Option<bool>,
@@ -40,6 +43,8 @@ pub async fn parse_and_create_subtitle_job(
         None => Vec::new(),
     };
 
+    let normalized_source_lang = normalize_source_lang(source_lang.as_deref()).to_string();
+    let normalized_target_lang = normalize_target_lang(target_lang.as_deref()).to_string();
     let normalized_genre = Genre::from_str_lossy(genre.as_deref().unwrap_or("general"))
         .as_str()
         .to_string();
@@ -112,6 +117,8 @@ pub async fn parse_and_create_subtitle_job(
             file_path: canonical.to_string_lossy().into_owned(),
             file_size_bytes,
             format: doc.format.as_str().to_string(),
+            source_lang: normalized_source_lang,
+            target_lang: normalized_target_lang,
             genre: normalized_genre,
             glossary_id: clean_glossary_id,
             tag_shield_enabled: shield_active,
@@ -161,6 +168,8 @@ pub async fn delete_subtitle_job(state: State<'_, AppState>, job_id: String) -> 
 pub async fn update_subtitle_job_options(
     state: State<'_, AppState>,
     job_id: String,
+    source_lang: Option<String>,
+    target_lang: Option<String>,
     genre: String,
     glossary_id: Option<String>,
     tag_shield_enabled: bool,
@@ -170,6 +179,14 @@ pub async fn update_subtitle_job_options(
         return Err(AppError::EngineBusySubtitleJob);
     }
 
+    let next_source_lang = match source_lang.as_deref() {
+        Some(raw) => normalize_source_lang(Some(raw)).to_string(),
+        None => current.source_lang,
+    };
+    let next_target_lang = match target_lang.as_deref() {
+        Some(raw) => normalize_target_lang(Some(raw)).to_string(),
+        None => current.target_lang,
+    };
     let normalized_genre = Genre::from_str_lossy(&genre).as_str().to_string();
     let clean_glossary_id = glossary_id
         .map(|s| s.trim().to_string())
@@ -177,6 +194,8 @@ pub async fn update_subtitle_job_options(
 
     state.db.update_subtitle_job_options(
         &job_id,
+        &next_source_lang,
+        &next_target_lang,
         &normalized_genre,
         clean_glossary_id.as_deref(),
         tag_shield_enabled,

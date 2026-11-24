@@ -1,11 +1,20 @@
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { ClipboardPaste, Eraser, Layers, Play, Square } from "lucide-react";
+import {
+  ClipboardPaste,
+  Eraser,
+  Layers,
+  Play,
+  Square,
+  Volume2,
+} from "lucide-react";
+import { getLanguageLabel } from "../../lib/languages";
 import { computeTextStats } from "./tokenizer";
 import {
   MAX_TEXT_CHARS,
   useTextTranslatorStore,
 } from "../../stores/useTextTranslatorStore";
 import { useEngineStore } from "../../stores/useEngineStore";
+import { useTtsStore } from "../../stores/useTtsStore";
 
 interface SourcePaneProps {
   disabled: boolean;
@@ -13,9 +22,14 @@ interface SourcePaneProps {
 
 export function SourcePane({ disabled }: SourcePaneProps) {
   const sourceText = useTextTranslatorStore((s) => s.sourceText);
+  const sourceLang = useTextTranslatorStore((s) => s.sourceLang);
+  const detectedSourceLang = useTextTranslatorStore(
+    (s) => s.detectedSourceLang
+  );
   const autoTranslate = useTextTranslatorStore((s) => s.autoTranslate);
   const isStreaming = useTextTranslatorStore((s) => s.isStreaming);
   const setSourceText = useTextTranslatorStore((s) => s.setSourceText);
+  const setAutoTranslate = useTextTranslatorStore((s) => s.setAutoTranslate);
   const clearSourceOnly = useTextTranslatorStore((s) => s.clearSourceOnly);
   const truncateToSafetyLimit = useTextTranslatorStore(
     (s) => s.truncateToSafetyLimit
@@ -23,6 +37,19 @@ export function SourcePane({ disabled }: SourcePaneProps) {
   const translateNow = useTextTranslatorStore((s) => s.translateNow);
   const cancelTranslation = useTextTranslatorStore((s) => s.cancelTranslation);
   const telemetry = useEngineStore((s) => s.telemetry);
+  const speakingKey = useTtsStore((s) => s.speakingKey);
+  const speak = useTtsStore((s) => s.speak);
+  const isSpeakingSource = speakingKey === "source";
+
+  const effectiveLang =
+    sourceLang === "auto" && detectedSourceLang ? detectedSourceLang : sourceLang;
+  const effectiveLabel = getLanguageLabel(effectiveLang);
+  const sourceHeader =
+    sourceLang === "auto"
+      ? detectedSourceLang
+        ? `${effectiveLabel.toUpperCase()} (DETECTED)`
+        : "AUTO-DETECT (SOURCE)"
+      : `${effectiveLabel.toUpperCase()} (SOURCE)`;
 
   const stats = computeTextStats(sourceText);
   const chunkThreshold = (telemetry?.ctx_size ?? 4096) <= 2048 ? 2500 : 5000;
@@ -47,11 +74,38 @@ export function SourcePane({ disabled }: SourcePaneProps) {
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-tag-organize" />
           <span className="text-xs font-semibold tracking-wider text-text-secondary">
-            ENGLISH (SOURCE)
+            {sourceHeader}
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={!sourceText.trim()}
+            onClick={() => speak("source", sourceText, effectiveLang)}
+            title={isSpeakingSource ? "Stop speech" : "Listen to source text"}
+            aria-label={
+              isSpeakingSource ? "Stop source audio" : "Listen to source text"
+            }
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-40 cursor-pointer ${
+              isSpeakingSource
+                ? "border-primary/40 bg-primary-container/15 text-primary"
+                : "border-border-default bg-surface-elevated text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            }`}
+          >
+            {isSpeakingSource ? (
+              <>
+                <Square className="h-3.5 w-3.5" />
+                Stop
+              </>
+            ) : (
+              <>
+                <Volume2 className="h-3.5 w-3.5" />
+                Listen
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             disabled={disabled}
@@ -83,9 +137,11 @@ export function SourcePane({ disabled }: SourcePaneProps) {
           placeholder={
             disabled
               ? "Editor is temporarily locked..."
-              : "Type or paste English text here..."
+              : sourceLang === "auto" && !detectedSourceLang
+                ? "Type or paste text in any language..."
+                : `Type or paste ${effectiveLabel} text here...`
           }
-          aria-label="English source text"
+          aria-label={`${effectiveLabel} source text`}
           className="h-full min-h-[260px] w-full flex-1 resize-none rounded-lg border border-border-default bg-surface-elevated p-3.5 text-sm leading-6 text-text-primary placeholder:text-text-muted focus:border-primary-container focus:outline-none disabled:opacity-60"
         />
       </div>
@@ -105,7 +161,7 @@ export function SourcePane({ disabled }: SourcePaneProps) {
           {stats.sentences} sentences • {stats.paragraphs} paragraphs
         </span>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           {isChunkingActive && (
             <span className="inline-flex items-center gap-1 rounded-full border border-tag-security/30 bg-tag-security/12 px-2.5 py-0.5 text-[11px] font-medium text-tag-security">
               <Layers className="h-3 w-3" />
@@ -127,6 +183,17 @@ export function SourcePane({ disabled }: SourcePaneProps) {
               </button>
             </div>
           )}
+
+          <label className="inline-flex items-center gap-2 text-xs text-text-secondary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoTranslate}
+              disabled={disabled}
+              onChange={(e) => setAutoTranslate(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[#10B981] cursor-pointer"
+            />
+            <span>Auto-translate (600ms)</span>
+          </label>
 
           {isStreaming && (
             <button

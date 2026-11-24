@@ -1,18 +1,30 @@
 import { useMemo, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Check, CheckCircle2, Copy, Loader2, RotateCcw } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  RotateCcw,
+  Square,
+  Volume2,
+} from "lucide-react";
+import { getLanguageLabel } from "../../lib/languages";
 import { tokenizeIndonesianText } from "./tokenizer";
 import { WordAlternativesPopover } from "./WordAlternativesPopover";
 import { useTextTranslatorStore } from "../../stores/useTextTranslatorStore";
+import { useTtsStore } from "../../stores/useTtsStore";
 
 export function TargetPane() {
   const [copied, setCopied] = useState(false);
 
   const translatedText = useTextTranslatorStore((s) => s.translatedText);
+  const targetLang = useTextTranslatorStore((s) => s.targetLang);
   const isStreaming = useTextTranslatorStore((s) => s.isStreaming);
   const statusText = useTextTranslatorStore((s) => s.statusText);
   const chunkInfo = useTextTranslatorStore((s) => s.chunkInfo);
   const lastTtftMs = useTextTranslatorStore((s) => s.lastTtftMs);
+  const lastTokPerSec = useTextTranslatorStore((s) => s.lastTokPerSec);
   const undoStack = useTextTranslatorStore((s) => s.undoStack);
   const selectedWord = useTextTranslatorStore((s) => s.selectedWord);
   const contextSummary = useTextTranslatorStore((s) => s.contextSummary);
@@ -31,6 +43,19 @@ export function TargetPane() {
   const persistCurrentToHistory = useTextTranslatorStore(
     (s) => s.persistCurrentToHistory
   );
+  const speakingKey = useTtsStore((s) => s.speakingKey);
+  const speak = useTtsStore((s) => s.speak);
+  const isSpeakingTarget = speakingKey === "target";
+
+  const targetLabel = getLanguageLabel(targetLang);
+
+  const finishedBadgeText = [
+    statusText,
+    lastTokPerSec != null ? `${lastTokPerSec.toFixed(1)} tok/s` : null,
+    lastTtftMs != null ? `TTFT ${(lastTtftMs / 1000).toFixed(2)}s` : null,
+  ]
+    .filter(Boolean)
+    .join(" • ");
 
   const tokens = useMemo(
     () => tokenizeIndonesianText(translatedText),
@@ -56,7 +81,7 @@ export function TargetPane() {
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-primary" />
           <span className="text-xs font-semibold tracking-wider text-text-secondary">
-            BAHASA INDONESIA
+            {targetLabel.toUpperCase()}
           </span>
         </div>
 
@@ -70,10 +95,7 @@ export function TargetPane() {
           ) : translatedText ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-container/30 bg-primary-container/12 px-2.5 py-0.5 text-[11px] font-medium text-primary tabular-nums">
               <CheckCircle2 className="h-3 w-3" />
-              {statusText}
-              {lastTtftMs != null
-                ? ` (TTFT: ${(lastTtftMs / 1000).toFixed(2)}s)`
-                : ""}
+              {finishedBadgeText}
             </span>
           ) : (
             <span className="text-[11px] text-text-muted">{statusText}</span>
@@ -84,7 +106,7 @@ export function TargetPane() {
       {/* Body */}
       <div className="relative flex flex-1 flex-col min-h-0 p-3.5">
         <div
-          aria-label="Indonesian translation output"
+          aria-label={`${targetLabel} translation output`}
           className="h-full min-h-[260px] w-full flex-1 overflow-y-auto rounded-lg border border-border-default bg-surface-elevated/60 p-3.5 text-sm leading-6 text-text-primary whitespace-pre-wrap break-words"
         >
           {!translatedText ? (
@@ -153,6 +175,37 @@ export function TargetPane() {
         </span>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={isStreaming || !translatedText.trim()}
+            onClick={() => speak("target", translatedText, targetLang)}
+            title={
+              isSpeakingTarget ? "Stop speech" : "Listen to translation"
+            }
+            aria-label={
+              isSpeakingTarget
+                ? "Stop translation audio"
+                : "Listen to translation"
+            }
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium disabled:opacity-40 cursor-pointer ${
+              isSpeakingTarget
+                ? "border-primary/40 bg-primary-container/15 text-primary"
+                : "border-border-default bg-surface-elevated text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+            }`}
+          >
+            {isSpeakingTarget ? (
+              <>
+                <Square className="h-3.5 w-3.5" />
+                Stop
+              </>
+            ) : (
+              <>
+                <Volume2 className="h-3.5 w-3.5" />
+                Listen
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             disabled={undoStack.length === 0 || isStreaming}

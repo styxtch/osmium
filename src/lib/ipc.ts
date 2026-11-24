@@ -45,6 +45,10 @@ export interface EngineTelemetry {
 export interface VramTickPayload {
   vram_used_mb: number;
   vram_total_mb: number;
+  gpu_temp_c?: number | null;
+  gpu_clock_mhz?: number | null;
+  ram_used_gb?: number;
+  ram_total_gb?: number;
 }
 
 export interface DiskSpaceInfo {
@@ -59,6 +63,10 @@ export interface AppSettings {
   backend_override: "auto" | "vulkan" | "cpu";
   ctx_size_override: "auto" | "2048" | "4096" | "8192";
   gpu_layers_override: string;
+  tts_provider: "native" | "neural" | string;
+  tts_rate: number;
+  tts_voice_prefs_json: string;
+  auto_idle_unload_minutes: number;
 }
 
 export interface CatalogModel {
@@ -139,6 +147,8 @@ export interface TranslationStreamEvent {
 
 export interface TranslationResult {
   translated_text: string;
+  source_lang: string;
+  target_lang: string;
   tone: Tone;
   model_id: string;
   model_display_name: string;
@@ -164,6 +174,8 @@ export interface TextHistoryItem {
   id: string;
   source_text: string;
   translated_text: string;
+  source_lang: string;
+  target_lang: string;
   tone: Tone;
   model_id: string;
   model_display_name: string;
@@ -186,6 +198,12 @@ export interface GlossaryEntry {
   source_term: string;
   target_term: string;
   case_sensitive: boolean;
+}
+
+export interface GlossaryImportResult {
+  glossary: Glossary;
+  imported_count: number;
+  skipped_count: number;
 }
 
 export type SubtitleGenre =
@@ -234,6 +252,8 @@ export interface SubtitleJobSummary {
   file_path: string;
   file_size_bytes: number;
   format: "srt" | "vtt" | "ass" | string;
+  source_lang: string;
+  target_lang: string;
   genre: SubtitleGenre | string;
   glossary_id: string | null;
   tag_shield_enabled: boolean;
@@ -364,6 +384,7 @@ export const ipc = {
     invoke<void>("set_diagnostics_tab_open", { open }),
   checkDiskSpace: (dirPath: string) =>
     invoke<DiskSpaceInfo>("check_disk_space", { dirPath }),
+  unloadSidecarModel: () => invoke<EngineTelemetry>("unload_sidecar_model"),
 
   getSettings: () => invoke<AppSettings>("get_settings"),
   updateSettings: (settings: AppSettings) =>
@@ -409,12 +430,16 @@ export const ipc = {
 
   translateText: (
     sourceText: string,
+    sourceLang: string,
+    targetLang: string,
     tone: Tone,
     onStream: (evt: TranslationStreamEvent) => void
   ) => {
     const channel = new Channel<TranslationStreamEvent>(onStream);
     return invoke<TranslationResult>("translate_text", {
       sourceText,
+      sourceLang,
+      targetLang,
       tone,
       onStream: channel,
     });
@@ -423,16 +448,20 @@ export const ipc = {
   getWordAlternatives: (
     word: string,
     sentenceContext: string,
-    sourceText: string
+    sourceText: string,
+    targetLang: string
   ) =>
     invoke<WordAlternativesResponse>("get_word_alternatives", {
       word,
       sentenceContext,
       sourceText,
+      targetLang,
     }),
   saveTextHistory: (payload: {
     sourceText: string;
     translatedText: string;
+    sourceLang: string;
+    targetLang: string;
     tone: Tone;
     modelId: string;
     modelDisplayName: string;
@@ -461,9 +490,22 @@ export const ipc = {
   }) => invoke<GlossaryEntry>("upsert_glossary_entry", payload),
   deleteGlossaryEntry: (id: string, glossaryId: string) =>
     invoke<void>("delete_glossary_entry", { id, glossaryId }),
+  exportGlossary: (
+    glossaryId: string,
+    destPath: string,
+    format?: "json" | "csv"
+  ) =>
+    invoke<string>("export_glossary", { glossaryId, destPath, format }),
+  importGlossary: (payload: {
+    filePath: string;
+    targetGlossaryId?: string | null;
+    collectionName?: string | null;
+  }) => invoke<GlossaryImportResult>("import_glossary", payload),
 
   parseAndCreateSubtitleJob: (payload: {
     filePath: string;
+    sourceLang?: string;
+    targetLang?: string;
     genre?: SubtitleGenre;
     glossaryId?: string | null;
     tagShieldEnabled?: boolean;
@@ -475,6 +517,8 @@ export const ipc = {
     invoke<void>("delete_subtitle_job", { jobId }),
   updateSubtitleJobOptions: (payload: {
     jobId: string;
+    sourceLang?: string;
+    targetLang?: string;
     genre: SubtitleGenre;
     glossaryId: string | null;
     tagShieldEnabled: boolean;

@@ -1,6 +1,7 @@
 use crate::core::engine::llama_client::ChatCompletionRequest;
 use crate::core::engine::telemetry::build_current_telemetry;
 use crate::core::translator::chunker::{chunk_threshold_for_ctx, split_into_chunks};
+use crate::core::translator::languages::{normalize_source_lang, normalize_target_lang};
 use crate::core::translator::prompts::{build_text_translation_messages, Tone};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -23,6 +24,8 @@ pub struct TranslationStreamEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslationResult {
     pub translated_text: String,
+    pub source_lang: String,
+    pub target_lang: String,
     pub tone: String,
     pub model_id: String,
     pub model_display_name: String,
@@ -37,6 +40,8 @@ pub async fn run_text_translation<F>(
     state: &AppState,
     app: &AppHandle,
     source_text: String,
+    source_lang_raw: Option<String>,
+    target_lang_raw: Option<String>,
     tone_raw: String,
     on_event: F,
 ) -> AppResult<TranslationResult>
@@ -44,6 +49,8 @@ where
     F: Fn(TranslationStreamEvent) + Send + Sync,
 {
     let tone = Tone::from_str_lossy(&tone_raw);
+    let source_lang = normalize_source_lang(source_lang_raw.as_deref());
+    let target_lang = normalize_target_lang(target_lang_raw.as_deref());
     let (_guard, cancel) = state.coordinator.acquire_text_stream().await?;
 
     let active_model = state
@@ -127,7 +134,7 @@ where
         };
 
         let req = ChatCompletionRequest {
-            messages: build_text_translation_messages(chunk_text, tone),
+            messages: build_text_translation_messages(chunk_text, source_lang, target_lang, tone),
             temperature,
             max_tokens: None,
             response_format: None,
@@ -191,6 +198,8 @@ where
 
     Ok(TranslationResult {
         translated_text: full_output.trim().to_string(),
+        source_lang: source_lang.to_string(),
+        target_lang: target_lang.to_string(),
         tone: tone.as_str().to_string(),
         model_id: active_model.id,
         model_display_name: active_model.display_name,

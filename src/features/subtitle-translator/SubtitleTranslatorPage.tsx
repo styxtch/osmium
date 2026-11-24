@@ -13,12 +13,14 @@ import { SubtitleVirtualTable } from "./SubtitleVirtualTable";
 function buildSuggestedExportPath(
   defaultExportDir: string | undefined,
   fileName: string,
-  format: string
+  format: string,
+  targetLang?: string
 ): string {
   const dotIdx = fileName.lastIndexOf(".");
   const stem = dotIdx > 0 ? fileName.slice(0, dotIdx) : fileName;
   const ext = format.toLowerCase();
-  const outName = `${stem}.id.${ext}`;
+  const langSuffix = (targetLang || "id").trim().toLowerCase() || "id";
+  const outName = `${stem}.${langSuffix}.${ext}`;
 
   if (!defaultExportDir || !defaultExportDir.trim()) {
     return outName;
@@ -82,7 +84,8 @@ export function SubtitleTranslatorPage() {
     const suggestedPath = buildSuggestedExportPath(
       settings?.default_export_dir,
       activeJob.file_name,
-      ext
+      ext,
+      activeJob.target_lang
     );
 
     const destPath = await save({
@@ -142,9 +145,18 @@ export function SubtitleTranslatorPage() {
           glossaries={glossaries}
           isLoadingJobs={isLoadingJobs}
           isParsingFile={isParsingFile}
-          onImportFile={async (filePath, genre, glossaryId, tagShieldEnabled) => {
+          onImportFile={async (
+            filePath,
+            sourceLang,
+            targetLang,
+            genre,
+            glossaryId,
+            tagShieldEnabled
+          ) => {
             await importSubtitleFile(
               filePath,
+              sourceLang,
+              targetLang,
               genre,
               glossaryId,
               tagShieldEnabled
@@ -169,8 +181,20 @@ export function SubtitleTranslatorPage() {
         hasActiveModel={hasActiveModel}
         isExporting={isExporting}
         onBackToJobs={closeActiveJob}
-        onUpdateOptions={(genre, glossaryId, tagShieldEnabled) =>
-          void updateJobOptions(genre, glossaryId, tagShieldEnabled)
+        onUpdateOptions={(
+          sourceLang,
+          targetLang,
+          genre,
+          glossaryId,
+          tagShieldEnabled
+        ) =>
+          void updateJobOptions(
+            sourceLang,
+            targetLang,
+            genre,
+            glossaryId,
+            tagShieldEnabled
+          )
         }
         onStart={() => void startJob()}
         onPause={() => void pauseJob()}
@@ -199,6 +223,7 @@ export function SubtitleTranslatorPage() {
 
       <SubtitleVirtualTable
         cues={cues}
+        targetLang={activeJob.target_lang || "id"}
         jobStatus={activeJob.status}
         tagShieldEnabled={activeJob.tag_shield_enabled}
         editingCueIndex={editingCueIndex}

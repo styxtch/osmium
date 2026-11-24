@@ -29,6 +29,8 @@ interface SubtitleState {
   refreshJobs: () => Promise<SubtitleJobSummary[]>;
   importSubtitleFile: (
     filePath: string,
+    sourceLang?: string,
+    targetLang?: string,
     genre?: SubtitleGenre,
     glossaryId?: string | null,
     tagShieldEnabled?: boolean
@@ -37,6 +39,8 @@ interface SubtitleState {
   closeActiveJob: () => void;
   deleteJob: (jobId: string) => Promise<void>;
   updateJobOptions: (
+    sourceLang: string,
+    targetLang: string,
     genre: SubtitleGenre,
     glossaryId: string | null,
     tagShieldEnabled: boolean
@@ -219,6 +223,8 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
 
   importSubtitleFile: async (
     filePath,
+    sourceLang = "en",
+    targetLang = "id",
     genre = "general",
     glossaryId = null,
     tagShieldEnabled = true
@@ -227,6 +233,8 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     try {
       const job = await ipc.parseAndCreateSubtitleJob({
         filePath,
+        sourceLang,
+        targetLang,
         genre,
         glossaryId,
         tagShieldEnabled,
@@ -297,13 +305,21 @@ export const useSubtitleStore = create<SubtitleState>((set, get) => ({
     }
   },
 
-  updateJobOptions: async (genre, glossaryId, tagShieldEnabled) => {
+  updateJobOptions: async (
+    sourceLang,
+    targetLang,
+    genre,
+    glossaryId,
+    tagShieldEnabled
+  ) => {
     const jobId = get().activeJobId;
     if (!jobId) return;
     set({ error: null });
     try {
       const updated = await ipc.updateSubtitleJobOptions({
         jobId,
+        sourceLang,
+        targetLang,
         genre,
         glossaryId,
         tagShieldEnabled,

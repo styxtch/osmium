@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ArrowRight, History, X } from "lucide-react";
 import type { TextHistoryItem } from "../../lib/ipc";
+import { formatLanguagePair } from "../../lib/languages";
 import { useGlossaryHistoryStore } from "../../stores/useGlossaryHistoryStore";
 import { useNavigationStore } from "../../stores/useNavigationStore";
 
@@ -60,6 +61,14 @@ export function QuickHistoryPopover({
                 }}
                 className="w-full rounded-lg border border-border-subtle bg-surface-elevated/70 p-2 text-left transition-colors hover:border-border-default hover:bg-surface-hover cursor-pointer"
               >
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="rounded border border-border-subtle bg-surface-container px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                    {formatLanguagePair(item.source_lang, item.target_lang)}
+                  </span>
+                  <span className="rounded border border-border-subtle bg-surface-container px-1.5 py-0.5 text-[10px] font-medium capitalize text-text-muted">
+                    {item.tone}
+                  </span>
+                </div>
                 <div className="truncate text-xs font-medium text-text-primary">
                   {item.source_text}
                 </div>

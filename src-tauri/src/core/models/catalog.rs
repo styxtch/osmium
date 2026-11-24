@@ -50,7 +50,7 @@ pub fn official_catalog() -> Vec<CatalogModel> {
             sha256: "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5".to_string(),
             block_count: 36,
             description: "Ultra-low VRAM footprint with high throughput and fast response. Ideal for 6 GB GPUs or CPU fallback.".to_string(),
-            badge_label: "VRAM Saver (6GB Ready)".to_string(),
+            badge_label: "VRAM Saver (4–6GB GPU)".to_string(),
         },
     ]
 }

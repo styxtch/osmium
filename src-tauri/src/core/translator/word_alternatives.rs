@@ -3,6 +3,7 @@ use crate::core::engine::llama_client::{
 };
 use crate::core::engine::sanitizer::strip_think_tags;
 use crate::core::engine::telemetry::build_current_telemetry;
+use crate::core::translator::languages::normalize_target_lang;
 use crate::core::translator::prompts::{
     build_word_alternatives_messages, word_alternatives_json_schema,
 };
@@ -30,12 +31,15 @@ pub async fn run_word_alternatives(
     word: String,
     sentence_context: String,
     source_text: String,
+    target_lang_raw: Option<String>,
 ) -> AppResult<WordAlternativesResponse> {
     if word.trim().is_empty() || sentence_context.trim().is_empty() {
         return Err(AppError::InvalidInput(
             "Word and sentence context cannot be empty".to_string(),
         ));
     }
+
+    let target_lang = normalize_target_lang(target_lang_raw.as_deref());
 
     let _guard = state.coordinator.acquire_word_alternatives().await?;
     let active_model = state
@@ -57,7 +61,12 @@ pub async fn run_word_alternatives(
         }
     };
 
-    let messages = build_word_alternatives_messages(&word, &sentence_context, &source_text);
+    let messages = build_word_alternatives_messages(
+        &word,
+        &sentence_context,
+        &source_text,
+        target_lang,
+    );
     let resp = request_word_alternatives_completion(&client, &messages, 0.35, 512).await?;
     state
         .sidecar

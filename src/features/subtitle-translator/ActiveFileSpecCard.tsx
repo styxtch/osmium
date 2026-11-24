@@ -14,6 +14,7 @@ import {
   type SubtitleGenre,
   type SubtitleJobSummary,
 } from "../../lib/ipc";
+import { SOURCE_LANGUAGES, TARGET_LANGUAGES } from "../../lib/languages";
 
 interface ActiveFileSpecCardProps {
   job: SubtitleJobSummary;
@@ -23,6 +24,8 @@ interface ActiveFileSpecCardProps {
   isExporting: boolean;
   onBackToJobs: () => void;
   onUpdateOptions: (
+    sourceLang: string,
+    targetLang: string,
     genre: SubtitleGenre,
     glossaryId: string | null,
     tagShieldEnabled: boolean
@@ -62,6 +65,42 @@ export function ActiveFileSpecCard({
     job.status === "paused" ||
     job.status === "error" ||
     job.status === "cancelled";
+
+  const currentSource = job.source_lang || "en";
+  const currentTarget = job.target_lang || "id";
+
+  const handleSourceChange = (nextSrc: string) => {
+    const nextDst =
+      nextSrc !== "auto" && nextSrc === currentTarget
+        ? currentSource !== "auto"
+          ? currentSource
+          : nextSrc === "en"
+            ? "id"
+            : "en"
+        : currentTarget;
+    onUpdateOptions(
+      nextSrc,
+      nextDst,
+      job.genre as SubtitleGenre,
+      job.glossary_id,
+      job.tag_shield_enabled
+    );
+  };
+
+  const handleTargetChange = (nextDst: string) => {
+    if (nextDst === "auto") return;
+    const nextSrc =
+      currentSource !== "auto" && nextDst === currentSource
+        ? currentTarget
+        : currentSource;
+    onUpdateOptions(
+      nextSrc,
+      nextDst,
+      job.genre as SubtitleGenre,
+      job.glossary_id,
+      job.tag_shield_enabled
+    );
+  };
 
   return (
     <div className="bg-surface-card border border-border-default rounded-xl p-4 space-y-3">
@@ -195,9 +234,43 @@ export function ActiveFileSpecCard({
         </div>
       </div>
 
-      {/* Bottom Options Strip (Genre, Glossary, Tag Shield, Model) */}
+      {/* Bottom Options Strip (Languages, Genre, Glossary, Tag Shield, Model) */}
       <div className="pt-3 border-t border-border-subtle flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs">
+            <span className="text-text-muted">Source:</span>
+            <select
+              aria-label="Job Source Language"
+              disabled={isRunning}
+              value={currentSource}
+              onChange={(e) => handleSourceChange(e.target.value)}
+              className="bg-surface-elevated border border-border-default rounded-md px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-primary disabled:opacity-50"
+            >
+              {SOURCE_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2 text-xs">
+            <span className="text-text-muted">Target:</span>
+            <select
+              aria-label="Job Target Language"
+              disabled={isRunning}
+              value={currentTarget}
+              onChange={(e) => handleTargetChange(e.target.value)}
+              className="bg-surface-elevated border border-border-default rounded-md px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-primary disabled:opacity-50"
+            >
+              {TARGET_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="flex items-center gap-2 text-xs">
             <span className="text-text-muted">Genre:</span>
             <select
@@ -206,6 +279,8 @@ export function ActiveFileSpecCard({
               value={job.genre}
               onChange={(e) =>
                 onUpdateOptions(
+                  currentSource,
+                  currentTarget,
                   e.target.value as SubtitleGenre,
                   job.glossary_id,
                   job.tag_shield_enabled
@@ -229,6 +304,8 @@ export function ActiveFileSpecCard({
               value={job.glossary_id ?? ""}
               onChange={(e) =>
                 onUpdateOptions(
+                  currentSource,
+                  currentTarget,
                   job.genre as SubtitleGenre,
                   e.target.value || null,
                   job.tag_shield_enabled
@@ -250,6 +327,8 @@ export function ActiveFileSpecCard({
             disabled={isRunning}
             onClick={() =>
               onUpdateOptions(
+                currentSource,
+                currentTarget,
                 job.genre as SubtitleGenre,
                 job.glossary_id,
                 !job.tag_shield_enabled

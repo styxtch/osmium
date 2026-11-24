@@ -1,16 +1,13 @@
 import { useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import {
-  ArrowLeftRight,
-  Check,
-  CopyCheck,
-  History,
-  Trash2,
-  Zap,
-} from "lucide-react";
+import { ArrowLeftRight, Check, CopyCheck, History, Trash2 } from "lucide-react";
 import type { Tone } from "../../lib/ipc";
-import { useEngineStore } from "../../stores/useEngineStore";
-import { useModelsStore } from "../../stores/useModelsStore";
+import {
+  getLanguageLabel,
+  getLanguageShortCode,
+  SOURCE_LANGUAGES,
+  TARGET_LANGUAGES,
+} from "../../lib/languages";
 import { useTextTranslatorStore } from "../../stores/useTextTranslatorStore";
 import { QuickHistoryPopover } from "./QuickHistoryPopover";
 
@@ -18,42 +15,57 @@ interface SubToolbarProps {
   disabled: boolean;
 }
 
-const TONES: { id: Tone; label: string }[] = [
-  { id: "natural", label: "Natural" },
-  { id: "formal", label: "Formal" },
-  { id: "casual", label: "Casual" },
+const TONES: { id: Tone; label: string; description: string }[] = [
+  {
+    id: "natural",
+    label: "Natural",
+    description:
+      "Auto-adapts like DeepL: keeps novel narrative fluent, matches dialogue voice, and preserves formal prose.",
+  },
+  {
+    id: "formal",
+    label: "Formal",
+    description: "Explicit override: polite, structured, and standard formal register.",
+  },
+  {
+    id: "casual",
+    label: "Casual",
+    description: "Explicit override: relaxed, conversational everyday register.",
+  },
 ];
 
 export function SubToolbar({ disabled }: SubToolbarProps) {
   const [showHistory, setShowHistory] = useState(false);
   const [copiedBoth, setCopiedBoth] = useState(false);
 
-  const installed = useModelsStore((s) => s.installed);
-  const telemetry = useEngineStore((s) => s.telemetry);
-
   const sourceText = useTextTranslatorStore((s) => s.sourceText);
   const translatedText = useTextTranslatorStore((s) => s.translatedText);
+  const sourceLang = useTextTranslatorStore((s) => s.sourceLang);
+  const detectedSourceLang = useTextTranslatorStore(
+    (s) => s.detectedSourceLang
+  );
+  const targetLang = useTextTranslatorStore((s) => s.targetLang);
   const tone = useTextTranslatorStore((s) => s.tone);
-  const autoTranslate = useTextTranslatorStore((s) => s.autoTranslate);
   const isStreaming = useTextTranslatorStore((s) => s.isStreaming);
-  const lastTokPerSec = useTextTranslatorStore((s) => s.lastTokPerSec);
 
+  const setSourceLang = useTextTranslatorStore((s) => s.setSourceLang);
+  const setTargetLang = useTextTranslatorStore((s) => s.setTargetLang);
+  const swapLanguages = useTextTranslatorStore((s) => s.swapLanguages);
   const setTone = useTextTranslatorStore((s) => s.setTone);
-  const setAutoTranslate = useTextTranslatorStore((s) => s.setAutoTranslate);
   const clearAll = useTextTranslatorStore((s) => s.clearAll);
   const loadFromHistory = useTextTranslatorStore((s) => s.loadFromHistory);
   const persistCurrentToHistory = useTextTranslatorStore(
     (s) => s.persistCurrentToHistory
   );
 
-  const activeModelName =
-    installed.find((m) => m.is_active)?.display_name ??
-    telemetry?.active_model_name ??
-    "No Model";
+  const effectiveSourceLang =
+    sourceLang === "auto" && detectedSourceLang ? detectedSourceLang : sourceLang;
+  const srcShort = getLanguageShortCode(effectiveSourceLang);
+  const dstShort = getLanguageShortCode(targetLang);
 
   const handleCopyBoth = async () => {
     if (!sourceText.trim() && !translatedText.trim()) return;
-    const combined = `EN:\n${sourceText}\n\nID:\n${translatedText}`;
+    const combined = `${srcShort}:\n${sourceText}\n\n${dstShort}:\n${translatedText}`;
     try {
       await writeText(combined);
     } catch {
@@ -65,30 +77,64 @@ export function SubToolbar({ disabled }: SubToolbarProps) {
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-default bg-surface-card px-4 py-2.5">
-      {/* Left: Language Pair Indicator */}
-      <div className="flex flex-wrap items-center gap-2 rounded-full border border-border-default bg-surface-container px-3 py-1.5 text-xs font-medium">
-        <span className="text-text-primary">English (Source)</span>
+    <div className="flex flex-wrap items-center justify-between gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center rounded-xl border border-border-default bg-surface-card px-4 py-2.5">
+      {/* Left: Interactive Multi-Language Pair */}
+      <div className="flex flex-wrap items-center gap-2 lg:justify-self-start min-w-0 max-w-full rounded-xl border border-border-default bg-surface-container px-2.5 py-1.5 text-xs font-medium">
+        <select
+          aria-label="Source language"
+          disabled={disabled || isStreaming}
+          value={sourceLang}
+          onChange={(e) => setSourceLang(e.target.value)}
+          className="rounded-lg border border-border-subtle bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-primary focus:border-primary focus:outline-none disabled:opacity-50 cursor-pointer"
+        >
+          {SOURCE_LANGUAGES.map((lang) => (
+            <option
+              key={lang.code}
+              value={lang.code}
+              className="bg-surface-elevated text-text-primary"
+            >
+              {lang.code === "auto" && detectedSourceLang
+                ? `Auto-detect (${getLanguageLabel(detectedSourceLang)})`
+                : lang.name}
+            </option>
+          ))}
+        </select>
+
         <button
           type="button"
-          disabled
-          title="ID → EN direction coming in v1.1"
-          aria-label="Swap languages (coming in v1.1)"
-          className="rounded-full p-1 text-text-muted opacity-60 cursor-not-allowed"
+          disabled={disabled || isStreaming}
+          onClick={swapLanguages}
+          title="Swap languages"
+          aria-label="Swap languages"
+          className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-hover hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
           <ArrowLeftRight className="h-3.5 w-3.5" />
         </button>
-        <span className="inline-flex items-center gap-1.5 text-text-primary">
-          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-          Indonesian [{activeModelName}]
-        </span>
+
+        <select
+          aria-label="Target language"
+          disabled={disabled || isStreaming}
+          value={targetLang}
+          onChange={(e) => setTargetLang(e.target.value)}
+          className="rounded-lg border border-border-subtle bg-surface-elevated px-2.5 py-1 text-xs font-medium text-text-primary focus:border-primary focus:outline-none disabled:opacity-50 cursor-pointer"
+        >
+          {TARGET_LANGUAGES.map((lang) => (
+            <option
+              key={lang.code}
+              value={lang.code}
+              className="bg-surface-elevated text-text-primary"
+            >
+              {lang.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Center: Tone Segmented Pills */}
       <div
         role="group"
         aria-label="Select translation tone"
-        className="flex items-center gap-1 rounded-lg border border-border-default bg-surface-container p-1"
+        className="flex items-center gap-1 lg:justify-self-center shrink-0 rounded-lg border border-border-default bg-surface-container p-1"
       >
         {TONES.map((t) => {
           const active = tone === t.id;
@@ -97,6 +143,7 @@ export function SubToolbar({ disabled }: SubToolbarProps) {
               key={t.id}
               type="button"
               disabled={disabled}
+              title={t.description}
               onClick={() => setTone(t.id)}
               className={`rounded-md px-3 py-1 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 ${
                 active
@@ -110,69 +157,47 @@ export function SubToolbar({ disabled }: SubToolbarProps) {
         })}
       </div>
 
-      {/* Right: Auto-translate toggle, speed badge & 3 Quick Utilities */}
-      <div className="relative flex flex-wrap items-center gap-2.5">
-        <label className="inline-flex items-center gap-2 text-xs text-text-secondary cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={autoTranslate}
-            disabled={disabled}
-            onChange={(e) => setAutoTranslate(e.target.checked)}
-            className="h-3.5 w-3.5 accent-[#10B981] cursor-pointer"
-          />
-          <span>Auto-translate (600ms)</span>
-        </label>
+      {/* Right: 3 Quick Utilities */}
+      <div className="relative flex flex-wrap items-center justify-end gap-1 lg:justify-self-end">
+        <button
+          type="button"
+          disabled={disabled && !sourceText && !translatedText}
+          onClick={clearAll}
+          title="Clear All"
+          aria-label="Clear All"
+          className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
 
-        {(isStreaming || lastTokPerSec != null) && (
-          <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-primary-container/30 bg-primary-container/10 px-2.5 py-1 text-[11px] font-medium text-primary tabular-nums">
-            <Zap className="h-3 w-3" />
-            {isStreaming
-              ? "Streaming active"
-              : `${(lastTokPerSec ?? 0).toFixed(1)} tok/s`}
-          </span>
-        )}
+        <button
+          type="button"
+          disabled={!sourceText.trim() && !translatedText.trim()}
+          onClick={() => void handleCopyBoth()}
+          title={`Copy Both (${srcShort}+${dstShort})`}
+          aria-label={`Copy Both (${srcShort}+${dstShort})`}
+          className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
+        >
+          {copiedBoth ? (
+            <Check className="h-4 w-4 text-primary" />
+          ) : (
+            <CopyCheck className="h-4 w-4" />
+          )}
+        </button>
 
-        <div className="flex items-center gap-1 border-l border-border-subtle pl-2">
-          <button
-            type="button"
-            disabled={disabled && !sourceText && !translatedText}
-            onClick={clearAll}
-            title="Clear All"
-            aria-label="Clear All"
-            className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-
-          <button
-            type="button"
-            disabled={!sourceText.trim() && !translatedText.trim()}
-            onClick={() => void handleCopyBoth()}
-            title="Copy Both (EN+ID)"
-            aria-label="Copy Both (EN+ID)"
-            className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-40 cursor-pointer"
-          >
-            {copiedBoth ? (
-              <Check className="h-4 w-4 text-primary" />
-            ) : (
-              <CopyCheck className="h-4 w-4" />
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowHistory((v) => !v)}
-            title="Quick History"
-            aria-label="Quick History"
-            className={`rounded-lg p-1.5 transition-colors cursor-pointer ${
-              showHistory
-                ? "bg-surface-elevated text-primary"
-                : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-            }`}
-          >
-            <History className="h-4 w-4" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          title="Quick History"
+          aria-label="Quick History"
+          className={`rounded-lg p-1.5 transition-colors cursor-pointer ${
+            showHistory
+              ? "bg-surface-elevated text-primary"
+              : "text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+          }`}
+        >
+          <History className="h-4 w-4" />
+        </button>
 
         {showHistory && (
           <QuickHistoryPopover

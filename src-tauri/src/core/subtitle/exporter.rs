@@ -143,6 +143,8 @@ filename: logo.png
                 file_path: "E:/subs/ep01.ass".to_string(),
                 file_size_bytes: sample.len() as i64,
                 format: "ass".to_string(),
+                source_lang: "en".to_string(),
+                target_lang: "id".to_string(),
                 genre: "anime".to_string(),
                 glossary_id: None,
                 tag_shield_enabled: true,

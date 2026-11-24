@@ -116,6 +116,25 @@ pub fn query_system_ram_gb() -> AppResult<f64> {
     Ok((gb * 100.0).round() / 100.0)
 }
 
+#[cfg(windows)]
+pub fn query_live_ram_gb() -> Option<(f64, f64)> {
+    use std::mem::size_of;
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+    let mut mem = MEMORYSTATUSEX {
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GlobalMemoryStatusEx(&mut mem) }.is_err() {
+        return None;
+    }
+    let bytes_per_gb = 1024.0 * 1024.0 * 1024.0;
+    let total_gb = ((mem.ullTotalPhys as f64 / bytes_per_gb) * 100.0).round() / 100.0;
+    let used_bytes = mem.ullTotalPhys.saturating_sub(mem.ullAvailPhys);
+    let used_gb = ((used_bytes as f64 / bytes_per_gb) * 100.0).round() / 100.0;
+    Some((used_gb, total_gb))
+}
+
 #[cfg(not(windows))]
 pub fn detect_best_dxgi_adapter() -> AppResult<DxgiSelectedAdapter> {
     Err(AppError::InternalError("DXGI is only supported on Windows".to_string()))
@@ -129,4 +148,9 @@ pub fn query_live_vram_mb() -> Option<(u64, u64)> {
 #[cfg(not(windows))]
 pub fn query_system_ram_gb() -> AppResult<f64> {
     Ok(0.0)
+}
+
+#[cfg(not(windows))]
+pub fn query_live_ram_gb() -> Option<(f64, f64)> {
+    None
 }

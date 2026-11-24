@@ -1,7 +1,7 @@
 use crate::error::AppResult;
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 1;
+pub const CURRENT_SCHEMA_VERSION: i32 = 2;
 
 pub fn configure_connection(conn: &Connection) -> AppResult<()> {
     conn.execute_batch(
@@ -128,6 +128,20 @@ pub fn run_migrations(conn: &mut Connection) -> AppResult<()> {
                 warning_msg TEXT,
                 PRIMARY KEY (job_id, cue_index)
             );
+            ",
+        )?;
+        tx.pragma_update(None, "user_version", 1)?;
+        tx.commit()?;
+    }
+
+    if version < 2 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE text_history ADD COLUMN source_lang TEXT NOT NULL DEFAULT 'en';
+            ALTER TABLE text_history ADD COLUMN target_lang TEXT NOT NULL DEFAULT 'id';
+            ALTER TABLE subtitle_jobs ADD COLUMN source_lang TEXT NOT NULL DEFAULT 'en';
+            ALTER TABLE subtitle_jobs ADD COLUMN target_lang TEXT NOT NULL DEFAULT 'id';
             ",
         )?;
         tx.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;

@@ -6,7 +6,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use tauri::State;
+use tauri::{Emitter, State};
 
 #[tauri::command]
 pub async fn scan_hardware(state: State<'_, AppState>) -> AppResult<HardwareProfile> {
@@ -38,4 +38,19 @@ pub async fn check_disk_space(dir_path: String) -> AppResult<DiskSpaceInfo> {
     tokio::task::spawn_blocking(move || disk::check_disk_space(&path))
         .await
         .map_err(|e| AppError::InternalError(e.to_string()))?
+}
+
+#[tauri::command]
+pub async fn unload_sidecar_model(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<EngineTelemetry> {
+    state.coordinator.ensure_idle_for_admin_action().await?;
+    let has_model = state.db.get_active_model()?.is_some();
+    state.sidecar.stop(has_model).await;
+    tracing::info!("Manually unloaded llama-server sidecar from memory");
+    let telemetry = build_current_telemetry(&state);
+    let _ = app.emit("engine:telemetry", telemetry.clone());
+    crate::core::engine::telemetry::emit_vram_tick(&app);
+    Ok(telemetry)
 }

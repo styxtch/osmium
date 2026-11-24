@@ -1,6 +1,22 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+fn default_tts_provider() -> String {
+    "native".to_string()
+}
+
+fn default_tts_rate() -> f64 {
+    1.0
+}
+
+fn default_tts_voice_prefs_json() -> String {
+    "{}".to_string()
+}
+
+fn default_auto_idle_unload_minutes() -> u32 {
+    10
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppSettings {
     pub display_mode: String,
     pub default_model_dir: String,
@@ -8,6 +24,14 @@ pub struct AppSettings {
     pub backend_override: String,
     pub ctx_size_override: String,
     pub gpu_layers_override: String,
+    #[serde(default = "default_tts_provider")]
+    pub tts_provider: String,
+    #[serde(default = "default_tts_rate")]
+    pub tts_rate: f64,
+    #[serde(default = "default_tts_voice_prefs_json")]
+    pub tts_voice_prefs_json: String,
+    #[serde(default = "default_auto_idle_unload_minutes")]
+    pub auto_idle_unload_minutes: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -45,6 +69,8 @@ pub struct TextHistoryItem {
     pub id: String,
     pub source_text: String,
     pub translated_text: String,
+    pub source_lang: String,
+    pub target_lang: String,
     pub tone: String,
     pub model_id: String,
     pub model_display_name: String,
@@ -78,6 +104,8 @@ pub struct SubtitleJobSummary {
     pub file_path: String,
     pub file_size_bytes: i64,
     pub format: String,
+    pub source_lang: String,
+    pub target_lang: String,
     pub genre: String,
     pub glossary_id: Option<String>,
     pub tag_shield_enabled: bool,

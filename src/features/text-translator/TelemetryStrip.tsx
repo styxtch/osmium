@@ -26,6 +26,12 @@ export function TelemetryStrip() {
   const backendLabel =
     telemetry?.backend === "cpu" ? "CPU Mode" : "Vulkan Native";
 
+  const metricsParts = [
+    lastTotalTokens != null ? `${lastTotalTokens} tokens` : null,
+    lastTokPerSec != null ? `${lastTokPerSec.toFixed(1)} t/s` : null,
+    lastTtftMs != null ? `TTFT ${(lastTtftMs / 1000).toFixed(2)}s` : null,
+  ].filter((part): part is string => part !== null);
+
   return (
     <footer
       aria-label="Local performance telemetry strip"
@@ -43,10 +49,7 @@ export function TelemetryStrip() {
         <span className="inline-flex items-center gap-1.5">
           <Activity className="h-3.5 w-3.5 text-tag-security" />
           Token Delta:{" "}
-          {lastTotalTokens != null
-            ? `${lastTotalTokens} tokens • ${(lastTokPerSec ?? 0).toFixed(1)} t/s`
-            : "--"}
-          {lastTtftMs != null && ` • TTFT ${(lastTtftMs / 1000).toFixed(2)}s`}
+          {metricsParts.length > 0 ? metricsParts.join(" • ") : "Idle"}
         </span>
       </div>
 

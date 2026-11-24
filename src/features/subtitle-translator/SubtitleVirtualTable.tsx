@@ -8,7 +8,9 @@ import {
   Pencil,
   RotateCw,
   Shield,
+  Square,
   Tag,
+  Volume2,
 } from "lucide-react";
 import {
   parseCueMeta,
@@ -16,10 +18,13 @@ import {
   type SubtitleCueDto,
   type SubtitleJobStatus,
 } from "../../lib/ipc";
+import { getLanguageLabel } from "../../lib/languages";
+import { useTtsStore } from "../../stores/useTtsStore";
 import { InlineCueEditor } from "./InlineCueEditor";
 
 interface SubtitleVirtualTableProps {
   cues: SubtitleCueDto[];
+  targetLang: string;
   jobStatus: SubtitleJobStatus;
   tagShieldEnabled: boolean;
   editingCueIndex: number | null;
@@ -32,6 +37,7 @@ interface SubtitleVirtualTableProps {
 
 export function SubtitleVirtualTable({
   cues,
+  targetLang,
   jobStatus,
   tagShieldEnabled,
   editingCueIndex,
@@ -42,6 +48,8 @@ export function SubtitleVirtualTable({
   onRetranslateRow,
 }: SubtitleVirtualTableProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const speakingKey = useTtsStore((s) => s.speakingKey);
+  const speak = useTtsStore((s) => s.speak);
 
   const rowVirtualizer = useVirtualizer({
     count: cues.length,
@@ -79,7 +87,7 @@ export function SubtitleVirtualTable({
         <div>#</div>
         <div>Timestamp</div>
         <div>Source Dialogue</div>
-        <div>Indonesian Translation</div>
+        <div>{getLanguageLabel(targetLang)} Translation</div>
         <div className="text-right">Status / Actions</div>
       </div>
 
@@ -99,6 +107,8 @@ export function SubtitleVirtualTable({
             const isDialogue = cue.cue_type === "dialogue";
             const isEditing = editingCueIndex === cue.cue_index;
             const isRetranslating = retranslatingCueIndex === cue.cue_index;
+            const rowTtsKey = `subtitle-${cue.cue_index}`;
+            const isSpeakingCue = speakingKey === rowTtsKey;
             const meta = parseCueMeta(cue.meta_json);
             const glossaryMatches = parseGlossaryMatches(
               cue.glossary_matches_json
@@ -224,6 +234,35 @@ export function SubtitleVirtualTable({
 
                   {isDialogue && !isEditing && (
                     <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Listen cue ${cue.cue_index}`}
+                        disabled={!cue.translated_text?.trim()}
+                        onClick={() =>
+                          speak(
+                            rowTtsKey,
+                            cue.translated_text ?? "",
+                            targetLang
+                          )
+                        }
+                        title={
+                          isSpeakingCue
+                            ? "Stop speech"
+                            : "Listen to translated dialogue"
+                        }
+                        className={`p-1.5 rounded border transition-colors disabled:opacity-35 disabled:cursor-not-allowed ${
+                          isSpeakingCue
+                            ? "bg-primary/15 border-primary/40 text-primary"
+                            : "bg-surface-elevated hover:bg-surface-hover border-border-default text-text-secondary hover:text-primary"
+                        }`}
+                      >
+                        {isSpeakingCue ? (
+                          <Square className="w-3 h-3" />
+                        ) : (
+                          <Volume2 className="w-3 h-3" />
+                        )}
+                      </button>
+
                       <button
                         type="button"
                         aria-label={`Edit cue ${cue.cue_index}`}

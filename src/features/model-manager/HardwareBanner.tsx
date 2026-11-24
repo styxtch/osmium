@@ -9,6 +9,10 @@ interface HardwareBannerProps {
 
 export function HardwareBanner({ hardware, scanning }: HardwareBannerProps) {
   const telemetry = useEngineStore((s) => s.telemetry);
+  const gpuTempC = useEngineStore((s) => s.gpuTempC);
+  const gpuClockMhz = useEngineStore((s) => s.gpuClockMhz);
+  const ramUsedGb = useEngineStore((s) => s.ramUsedGb);
+  const ramTotalGb = useEngineStore((s) => s.ramTotalGb);
 
   if (!hardware) {
     return (
@@ -52,7 +56,10 @@ export function HardwareBanner({ hardware, scanning }: HardwareBannerProps) {
     }
   })();
 
-  const hasThermals = hardware.thermal_c != null || hardware.clock_mhz != null;
+  const liveTempC = gpuTempC ?? hardware.thermal_c;
+  const liveClockMhz = gpuClockMhz ?? hardware.clock_mhz;
+  const liveRamTotal = ramTotalGb || hardware.system_ram_gb;
+  const hasThermals = liveTempC != null || liveClockMhz != null;
 
   return (
     <section className="rounded-xl border border-border-default bg-surface-card p-5 space-y-4">
@@ -90,7 +97,8 @@ export function HardwareBanner({ hardware, scanning }: HardwareBannerProps) {
           </span>
 
           <span className="rounded-full border border-border-default bg-surface-container px-2.5 py-1 text-text-secondary tabular-nums">
-            System RAM: {hardware.system_ram_gb.toFixed(1)} GB
+            System RAM: {ramUsedGb > 0 ? `${ramUsedGb.toFixed(1)} / ` : ""}
+            {liveRamTotal.toFixed(1)} GB
           </span>
         </div>
       </div>
@@ -146,8 +154,8 @@ export function HardwareBanner({ hardware, scanning }: HardwareBannerProps) {
           {hasThermals ? (
             <>
               <div className="mt-2 text-xl font-semibold leading-7 text-text-primary tabular-nums">
-                {hardware.thermal_c != null ? `${hardware.thermal_c}°C` : "--"}{" "}
-                {hardware.clock_mhz != null ? `• ${hardware.clock_mhz} MHz` : ""}
+                {liveTempC != null ? `${liveTempC}°C` : "--"}{" "}
+                {liveClockMhz != null ? `• ${liveClockMhz} MHz` : ""}
               </div>
               <div className="mt-1 text-xs leading-4 text-text-muted">
                 Real-Time NVML GPU Sensor

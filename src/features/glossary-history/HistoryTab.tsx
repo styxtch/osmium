@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ArrowUpRight, Check, Copy, Search, Trash2 } from "lucide-react";
+import { formatLanguagePair } from "../../lib/languages";
 import { useGlossaryHistoryStore } from "../../stores/useGlossaryHistoryStore";
 import { useNavigationStore } from "../../stores/useNavigationStore";
 import { useTextTranslatorStore } from "../../stores/useTextTranslatorStore";
@@ -73,6 +74,9 @@ export function HistoryTab() {
             >
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-border-default bg-surface-container px-2.5 py-0.5 text-[11px] font-semibold text-primary">
+                    {formatLanguagePair(item.source_lang, item.target_lang)}
+                  </span>
                   <span className="rounded-full border border-border-default bg-surface-container px-2.5 py-0.5 text-[11px] font-medium text-primary capitalize">
                     {item.tone}
                   </span>

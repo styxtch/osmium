@@ -64,7 +64,7 @@ const BASE_CATALOG = [
     sha256: "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
     block_count: 36,
     description: "Balanced 4B",
-    badge_label: "VRAM Saver (6GB Ready)",
+    badge_label: "VRAM Saver (4–6GB GPU)",
   },
 ];
 
@@ -94,7 +94,12 @@ function resetStores() {
     telemetry: null,
     vramUsedMb: 0,
     vramTotalMb: 0,
+    gpuTempC: null,
+    gpuClockMhz: null,
+    ramUsedGb: 0,
+    ramTotalGb: 0,
     scanning: false,
+    unloading: false,
     error: null,
     engineAlert: null,
   });
@@ -138,6 +143,10 @@ describe("ModelManagerPage & Sidebar Flows", () => {
             backend_override: "auto",
             ctx_size_override: "auto",
             gpu_layers_override: "auto",
+            tts_provider: "native",
+            tts_rate: 1.0,
+            tts_voice_prefs_json: "{}",
+            auto_idle_unload_minutes: 10,
           };
         case "list_models":
           return { catalog: BASE_CATALOG, installed: [], downloads: [] };
@@ -238,6 +247,10 @@ describe("ModelManagerPage & Sidebar Flows", () => {
             backend_override: "auto",
             ctx_size_override: "auto",
             gpu_layers_override: "auto",
+            tts_provider: "native",
+            tts_rate: 1.0,
+            tts_voice_prefs_json: "{}",
+            auto_idle_unload_minutes: 10,
           };
         case "list_models":
           return {
@@ -314,5 +327,96 @@ describe("ModelManagerPage & Sidebar Flows", () => {
       screen.getByText(/Local model file was not found\. It may have been moved or deleted\./i)
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Locate File/i })).toBeTruthy();
+  });
+
+  it("invokes unload_sidecar_model when Unload Model button is clicked while engine is online", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      switch (cmd) {
+        case "get_settings":
+          return {
+            display_mode: "standard",
+            default_model_dir: "C:\\Users\\Test\\Osmium\\models",
+            default_export_dir: "C:\\Users\\Test\\Downloads",
+            backend_override: "auto",
+            ctx_size_override: "auto",
+            gpu_layers_override: "auto",
+            tts_provider: "native",
+            tts_rate: 1.0,
+            tts_voice_prefs_json: "{}",
+            auto_idle_unload_minutes: 10,
+          };
+        case "list_models":
+          return {
+            catalog: BASE_CATALOG,
+            installed: [
+              {
+                id: "qwen3-8b-q4km",
+                display_name: "Qwen 3 8B",
+                tier: "optimal_8b",
+                file_path: "C:\\Models\\Qwen3-8B-Q4_K_M.gguf",
+                file_size_bytes: 5027783488,
+                sha256: BASE_CATALOG[0].sha256,
+                quantization: "Q4_K_M",
+                is_byom: false,
+                block_count: 36,
+                is_active: true,
+                created_at: 1,
+                file_exists: true,
+              },
+            ],
+            downloads: [],
+          };
+        case "scan_hardware":
+          return BASE_HARDWARE;
+        case "get_engine_telemetry":
+          return {
+            status: "online",
+            pid: 4321,
+            port: 55100,
+            active_model_id: "qwen3-8b-q4km",
+            active_model_name: "Qwen 3 8B",
+            backend: "vulkan",
+            ctx_size: 8192,
+            gpu_layers: 99,
+            vram_used_mb: 6800,
+            vram_total_mb: 12288,
+            last_ttft_ms: 260,
+            last_tok_per_sec: 42.5,
+            db_wal_synced: true,
+            busy_by: "none",
+          };
+        case "unload_sidecar_model":
+          return {
+            status: "standby",
+            pid: null,
+            port: null,
+            active_model_id: "qwen3-8b-q4km",
+            active_model_name: "Qwen 3 8B",
+            backend: "vulkan",
+            ctx_size: 8192,
+            gpu_layers: 99,
+            vram_used_mb: 980,
+            vram_total_mb: 12288,
+            last_ttft_ms: 260,
+            last_tok_per_sec: 42.5,
+            db_wal_synced: true,
+            busy_by: "none",
+          };
+        default:
+          return undefined;
+      }
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Unload active model from VRAM/i })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Unload active model from VRAM/i }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("unload_sidecar_model");
+    });
   });
 });

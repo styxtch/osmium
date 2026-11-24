@@ -11,6 +11,7 @@ use crate::core::engine::sanitizer::strip_think_tags;
 use crate::core::subtitle::glossary_matcher::match_glossary_terms;
 use crate::core::subtitle::tag_shield::{restore_tags, shield_tags};
 use crate::core::subtitle::types::CueType;
+use crate::core::translator::languages::{language_info, language_name};
 use crate::core::translator::prompts::Genre;
 use crate::db::models::{GlossaryEntry, SubtitleCueDto};
 use crate::error::{AppError, AppResult};
@@ -137,11 +138,14 @@ pub fn prepare_cue_for_pipeline(
 /// 4. If retry still fails (`len > 1`), **Recursive Binary Split Fallback** into halves down to `len == 1`.
 /// 5. A single cue (`len == 1`) gets max 1 retry (`temperature = 0.05`); if still invalid, returns
 ///    `status = "warning"` keeping `original_text` intact (guaranteed zero infinite loops).
+#[allow(clippy::too_many_arguments)]
 pub async fn translate_batch_with_healing<C: BatchCompletionClient>(
     client: &C,
     batch: &[PreparedCue],
     prev_context: &[(String, String)],
     next_context: &[String],
+    source_lang: &str,
+    target_lang: &str,
     genre: Genre,
     tag_shield_enabled: bool,
     cancel: &CancellationToken,
@@ -181,6 +185,8 @@ pub async fn translate_batch_with_healing<C: BatchCompletionClient>(
             &translatable,
             prev_context,
             next_context,
+            source_lang,
+            target_lang,
             genre,
             tag_shield_enabled,
             true,
@@ -213,6 +219,8 @@ fn translate_slice_bounded<'a, C: BatchCompletionClient>(
     slice: &'a [PreparedCue],
     prev_context: &'a [(String, String)],
     next_context: &'a [String],
+    source_lang: &'a str,
+    target_lang: &'a str,
     genre: Genre,
     tag_shield_enabled: bool,
     allow_initial_batch_retry: bool,
@@ -244,6 +252,8 @@ fn translate_slice_bounded<'a, C: BatchCompletionClient>(
                     slice,
                     prev_context,
                     next_context,
+                    source_lang,
+                    target_lang,
                     genre,
                     tag_shield_enabled,
                     temp,
@@ -293,6 +303,8 @@ fn translate_slice_bounded<'a, C: BatchCompletionClient>(
             slice,
             prev_context,
             next_context,
+            source_lang,
+            target_lang,
             genre,
             tag_shield_enabled,
             0.05,
@@ -324,6 +336,8 @@ fn translate_slice_bounded<'a, C: BatchCompletionClient>(
                 slice,
                 prev_context,
                 next_context,
+                source_lang,
+                target_lang,
                 genre,
                 tag_shield_enabled,
                 0.0,
@@ -352,6 +366,8 @@ fn translate_slice_bounded<'a, C: BatchCompletionClient>(
             &slice[..mid],
             prev_context,
             next_context,
+            source_lang,
+            target_lang,
             genre,
             tag_shield_enabled,
             false,
@@ -367,6 +383,8 @@ fn translate_slice_bounded<'a, C: BatchCompletionClient>(
             &slice[mid..],
             prev_context,
             next_context,
+            source_lang,
+            target_lang,
             genre,
             tag_shield_enabled,
             false,
@@ -386,6 +404,8 @@ async fn execute_single_attempt<C: BatchCompletionClient>(
     slice: &[PreparedCue],
     prev_context: &[(String, String)],
     next_context: &[String],
+    source_lang: &str,
+    target_lang: &str,
     genre: Genre,
     tag_shield_enabled: bool,
     temperature: f32,
@@ -397,6 +417,8 @@ async fn execute_single_attempt<C: BatchCompletionClient>(
         slice,
         prev_context,
         next_context,
+        source_lang,
+        target_lang,
         genre,
         tag_shield_enabled,
         strict_retry_mode,
@@ -518,33 +540,53 @@ fn parse_batch_json_payload(raw: &str) -> AppResult<BatchJsonPayload> {
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_batch_messages(
     slice: &[PreparedCue],
     prev_context: &[(String, String)],
     next_context: &[String],
+    source_lang: &str,
+    target_lang: &str,
     genre: Genre,
     tag_shield_enabled: bool,
     strict_retry_mode: bool,
 ) -> Vec<ChatMessage> {
-    let mut system = format!(
-        "Kamu adalah penerjemah subtitle profesional Inggris ke Bahasa Indonesia. {}\n\
-         Terjemahkan SETIAP item pada JSON input ke Bahasa Indonesia yang ringkas, alami dibaca di layar, dan setia konteks.\n\
-         Kembalikan HANYA objek JSON valid berbentuk `{{\"items\": [{{\"id\": <integer>, \"text\": \"...\"}}]}}` \
-         dengan jumlah elemen serta urutan `id` yang SAMA PERSIS seperti input.",
-        genre.prompt_instruction()
-    );
+    let target_info = language_info(target_lang);
+    let source_label = if source_lang == "auto" {
+        "automatically detected source language"
+    } else {
+        language_name(source_lang)
+    };
+    let genre_guide = genre.prompt_instruction_for_lang(target_lang);
+
+    let mut system = if target_lang == "id" {
+        format!(
+            "Kamu adalah penerjemah subtitle profesional ({source_label} -> Bahasa Indonesia). {genre_guide}\n\
+             Terjemahkan SETIAP item pada JSON input ke Bahasa Indonesia yang ringkas, alami dibaca di layar, dan setia konteks.\n\
+             Kembalikan HANYA objek JSON valid berbentuk `{{\"items\": [{{\"id\": <integer>, \"text\": \"...\"}}]}}` \
+             dengan jumlah elemen serta urutan `id` yang SAMA PERSIS seperti input."
+        )
+    } else {
+        format!(
+            "You are a professional subtitle translator ({source_label} -> {} ({})). {genre_guide}\n\
+             Translate EVERY item in the input JSON into concise, natural {} subtitles faithful to dialogue flow and timing.\n\
+             Return ONLY a valid JSON object shaped `{{\"items\": [{{\"id\": <integer>, \"text\": \"...\"}}]}}` \
+             with the EXACT same item count and `id` sequence as the input.",
+            target_info.name, target_info.native_name, target_info.name
+        )
+    };
 
     if tag_shield_enabled {
         system.push_str(
-            "\nPENTING (Tag Shield): Jangan pernah menghapus, mengubah nama, menggandakan, atau menambah placeholder XML seperti `<t1>`, `</t1>`, `<t1/>`, `<t2>`, dll. \
-             Pertahankan posisi placeholder tepat membungkus bagian kalimat terjemahan yang sesuai.",
+            "\nIMPORTANT (Tag Shield): Never delete, rename, duplicate, or invent XML placeholders like `<t1>`, `</t1>`, `<t1/>`, `<t2>`, etc. \
+             Keep placeholders wrapping the matching translated span accurately.",
         );
     }
 
     if strict_retry_mode {
         system.push_str(
-            "\nPERINGATAN RETRY KETAT: Percobaan sebelumnya gagal verifikasi ID atau placeholder `<tN>`. \
-             Pastikan semua `id` dan setiap placeholder `<tN>` / `<tN/>` utuh 100%.",
+            "\nSTRICT RETRY WARNING: Previous attempt failed ID or `<tN>` placeholder verification. \
+             Ensure all `id` values and every `<tN>` / `<tN/>` placeholder remain 100% intact.",
         );
     }
 
@@ -565,21 +607,21 @@ fn build_batch_messages(
     }
 
     if !glossary_lines.is_empty() {
-        system.push_str("\n\nWajib gunakan terjemahan istilah glosarium berikut secara konsisten:\n");
+        system.push_str("\n\nEnforce these glossary translations consistently:\n");
         system.push_str(&glossary_lines.join("\n"));
     }
 
     if !prev_context.is_empty() {
-        system.push_str("\n\nKonteks 1-3 baris dialog sebelumnya (hanya untuk konsistensi sapaan/alur, JANGAN masukkan ke JSON output):\n");
+        system.push_str("\n\nPrevious 1-3 dialogue lines (reference ONLY for pronoun/tone consistency; DO NOT include in output JSON):\n");
         for (idx, (src, dst)) in prev_context.iter().take(3).enumerate() {
-            system.push_str(&format!("{}. EN: {} | ID: {}\n", idx + 1, src, dst));
+            system.push_str(&format!("{}. SRC: {} | DST: {}\n", idx + 1, src, dst));
         }
     }
 
     if !next_context.is_empty() {
-        system.push_str("\n\nKonteks 1-2 baris dialog sesudahnya (hanya rujukan lanjutan kalimat/nada, JANGAN masukkan ke JSON output):\n");
+        system.push_str("\n\nUpcoming 1-2 dialogue lines (lookahead reference ONLY for sentence flow; DO NOT include in output JSON):\n");
         for (idx, src) in next_context.iter().take(2).enumerate() {
-            system.push_str(&format!("{}. EN: {}\n", idx + 1, src));
+            system.push_str(&format!("{}. SRC: {}\n", idx + 1, src));
         }
     }
 
@@ -754,6 +796,8 @@ mod tests {
             &prepared,
             &[],
             &[],
+            "en",
+            "id",
             Genre::Anime,
             true,
             &cancel,

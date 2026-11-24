@@ -42,13 +42,18 @@ import { useSettingsStore } from "../../../stores/useSettingsStore";
 import { useSubtitleStore } from "../../../stores/useSubtitleStore";
 import type { SubtitleCueDto, SubtitleJobSummary } from "../../../lib/ipc";
 
-function makeJob(status: SubtitleJobSummary["status"]): SubtitleJobSummary {
+function makeJob(
+  status: SubtitleJobSummary["status"],
+  overrides?: Partial<SubtitleJobSummary>
+): SubtitleJobSummary {
   return {
     id: "job-1",
     file_name: "episode01.ass",
     file_path: "D:\\Videos\\episode01.ass",
     file_size_bytes: 20480,
     format: "ass",
+    source_lang: "en",
+    target_lang: "id",
     genre: "anime",
     glossary_id: null,
     tag_shield_enabled: true,
@@ -60,6 +65,7 @@ function makeJob(status: SubtitleJobSummary["status"]): SubtitleJobSummary {
     self_healing_errors: 0,
     created_at: 1000,
     updated_at: 2000,
+    ...overrides,
   };
 }
 
@@ -96,8 +102,11 @@ function makeCues(status: SubtitleJobSummary["status"]): SubtitleCueDto[] {
   ];
 }
 
-function seedStores(status: SubtitleJobSummary["status"]) {
-  const job = makeJob(status);
+function seedStores(
+  status: SubtitleJobSummary["status"],
+  jobOverrides?: Partial<SubtitleJobSummary>
+) {
+  const job = makeJob(status, jobOverrides);
   const cues = makeCues(status);
 
   useModelsStore.setState({
@@ -127,6 +136,10 @@ function seedStores(status: SubtitleJobSummary["status"]) {
       ctx_size_override: "auto",
       gpu_layers_override: "auto",
       display_mode: "standard",
+      tts_provider: "native",
+      tts_rate: 1.0,
+      tts_voice_prefs_json: "{}",
+      auto_idle_unload_minutes: 10,
     },
   });
 
@@ -349,5 +362,25 @@ describe("SubtitleTranslatorPage", () => {
         statusFilter: "warning",
       });
     });
+  });
+
+  it("renders dynamic target language column header and export filename suffix", async () => {
+    seedStores("completed", { source_lang: "ja", target_lang: "en" });
+    await act(async () => {
+      render(<SubtitleTranslatorPage />);
+    });
+
+    expect(screen.getByText("English Translation")).toBeTruthy();
+
+    saveDialogMock.mockResolvedValueOnce("D:\\Exports\\episode01.en.ass");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /export/i }));
+    });
+
+    expect(saveDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: "D:\\Exports\\episode01.en.ass",
+      })
+    );
   });
 });

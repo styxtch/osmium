@@ -9,7 +9,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::Mutex as AsyncMutex;
@@ -65,6 +65,7 @@ struct TelemetrySnapshotState {
 pub struct SidecarManager {
     running: AsyncMutex<Option<RunningSidecar>>,
     snapshot: StdMutex<TelemetrySnapshotState>,
+    last_activity_at: StdMutex<Option<Instant>>,
 }
 
 impl Default for SidecarManager {
@@ -93,7 +94,31 @@ impl SidecarManager {
                 last_ttft_ms: None,
                 last_tok_per_sec: None,
             }),
+            last_activity_at: StdMutex::new(None),
         }
+    }
+
+    pub fn touch_activity(&self) {
+        if let Ok(mut guard) = self.last_activity_at.lock() {
+            *guard = Some(Instant::now());
+        }
+    }
+
+    pub fn is_online(&self) -> bool {
+        self.snapshot
+            .lock()
+            .map(|snap| snap.status == SidecarStatus::Online)
+            .unwrap_or(false)
+    }
+
+    pub fn idle_duration(&self) -> Option<Duration> {
+        if !self.is_online() {
+            return None;
+        }
+        self.last_activity_at
+            .lock()
+            .ok()
+            .and_then(|guard| guard.map(|t| t.elapsed()))
     }
 
     pub fn set_standby_model(
@@ -125,6 +150,7 @@ impl SidecarManager {
             snap.last_ttft_ms = Some(ttft_ms);
             snap.last_tok_per_sec = Some((tok_per_sec * 10.0).round() / 10.0);
         }
+        self.touch_activity();
     }
 
     pub async fn ensure_running(&self, config: SidecarConfig) -> AppResult<LlamaClient> {
@@ -135,6 +161,7 @@ impl SidecarManager {
             if alive && existing.config == config {
                 let client = LlamaClient::new(existing.port, existing.api_key.clone())?;
                 if matches!(client.health_check().await, Ok(true)) {
+                    self.touch_activity();
                     return Ok(client);
                 }
             }
@@ -252,6 +279,7 @@ impl SidecarManager {
                     api_key,
                     _stderr_lines: stderr_lines,
                 });
+                self.touch_activity();
                 tracing::info!(port, ?pid, "llama-server sidecar is online");
                 return Ok(client);
             }
@@ -270,6 +298,9 @@ impl SidecarManager {
     pub async fn stop(&self, has_active_model: bool) {
         let mut guard = self.running.lock().await;
         Self::terminate_running(&mut guard).await;
+        if let Ok(mut ts) = self.last_activity_at.lock() {
+            *ts = None;
+        }
         if let Ok(mut snap) = self.snapshot.lock() {
             snap.pid = None;
             snap.port = None;

@@ -27,6 +27,10 @@ impl Database {
             ("backend_override", "auto"),
             ("ctx_size_override", "auto"),
             ("gpu_layers_override", "auto"),
+            ("tts_provider", "native"),
+            ("tts_rate", "1.0"),
+            ("tts_voice_prefs_json", "{}"),
+            ("auto_idle_unload_minutes", "10"),
         ];
 
         self.with_conn(|conn| {
@@ -49,6 +53,10 @@ impl Database {
                 backend_override: "auto".to_string(),
                 ctx_size_override: "auto".to_string(),
                 gpu_layers_override: "auto".to_string(),
+                tts_provider: "native".to_string(),
+                tts_rate: 1.0,
+                tts_voice_prefs_json: "{}".to_string(),
+                auto_idle_unload_minutes: 10,
             };
 
             let mut stmt = conn.prepare("SELECT key, value FROM app_settings")?;
@@ -65,6 +73,20 @@ impl Database {
                     "backend_override" => settings.backend_override = value,
                     "ctx_size_override" => settings.ctx_size_override = value,
                     "gpu_layers_override" => settings.gpu_layers_override = value,
+                    "tts_provider" => settings.tts_provider = value,
+                    "tts_rate" => {
+                        if let Ok(parsed) = value.parse::<f64>() {
+                            if parsed.is_finite() {
+                                settings.tts_rate = parsed;
+                            }
+                        }
+                    }
+                    "tts_voice_prefs_json" => settings.tts_voice_prefs_json = value,
+                    "auto_idle_unload_minutes" => {
+                        if let Ok(parsed) = value.parse::<u32>() {
+                            settings.auto_idle_unload_minutes = parsed;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -75,6 +97,8 @@ impl Database {
 
     pub fn save_settings(&self, settings: &AppSettings) -> AppResult<()> {
         let now = now_unix_ms();
+        let tts_rate_str = format!("{:.2}", settings.tts_rate);
+        let auto_idle_str = settings.auto_idle_unload_minutes.to_string();
         let pairs = [
             ("display_mode", settings.display_mode.as_str()),
             ("default_model_dir", settings.default_model_dir.as_str()),
@@ -82,6 +106,10 @@ impl Database {
             ("backend_override", settings.backend_override.as_str()),
             ("ctx_size_override", settings.ctx_size_override.as_str()),
             ("gpu_layers_override", settings.gpu_layers_override.as_str()),
+            ("tts_provider", settings.tts_provider.as_str()),
+            ("tts_rate", tts_rate_str.as_str()),
+            ("tts_voice_prefs_json", settings.tts_voice_prefs_json.as_str()),
+            ("auto_idle_unload_minutes", auto_idle_str.as_str()),
         ];
 
         self.with_conn(|conn| {
@@ -347,13 +375,15 @@ impl Database {
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO text_history (
-                    id, source_text, translated_text, tone, model_id,
-                    model_display_name, ttft_ms, tok_per_sec, created_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    id, source_text, translated_text, source_lang, target_lang, tone,
+                    model_id, model_display_name, ttft_ms, tok_per_sec, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     item.id,
                     item.source_text,
                     item.translated_text,
+                    item.source_lang,
+                    item.target_lang,
                     item.tone,
                     item.model_id,
                     item.model_display_name,
@@ -376,8 +406,8 @@ impl Database {
             if let Some(q) = query.map(str::trim).filter(|s| !s.is_empty()) {
                 let pattern = format!("%{}%", escape_like(q));
                 let mut stmt = conn.prepare(
-                    "SELECT id, source_text, translated_text, tone, model_id,
-                            model_display_name, ttft_ms, tok_per_sec, created_at
+                    "SELECT id, source_text, translated_text, source_lang, target_lang, tone,
+                            model_id, model_display_name, ttft_ms, tok_per_sec, created_at
                      FROM text_history
                      WHERE source_text LIKE ?1 ESCAPE '\\'
                         OR translated_text LIKE ?1 ESCAPE '\\'
@@ -388,8 +418,8 @@ impl Database {
                 rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
             } else {
                 let mut stmt = conn.prepare(
-                    "SELECT id, source_text, translated_text, tone, model_id,
-                            model_display_name, ttft_ms, tok_per_sec, created_at
+                    "SELECT id, source_text, translated_text, source_lang, target_lang, tone,
+                            model_id, model_display_name, ttft_ms, tok_per_sec, created_at
                      FROM text_history
                      ORDER BY created_at DESC
                      LIMIT ?1",
@@ -410,8 +440,8 @@ impl Database {
     pub fn get_latest_text_history(&self) -> AppResult<Option<TextHistoryItem>> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT id, source_text, translated_text, tone, model_id,
-                        model_display_name, ttft_ms, tok_per_sec, created_at
+                "SELECT id, source_text, translated_text, source_lang, target_lang, tone,
+                        model_id, model_display_name, ttft_ms, tok_per_sec, created_at
                  FROM text_history
                  ORDER BY created_at DESC
                  LIMIT 1",
@@ -580,16 +610,18 @@ impl Database {
             tx.execute(
                 "INSERT INTO subtitle_jobs (
                     id, file_name, file_path, file_size_bytes, format,
-                    raw_header, raw_footer, ass_format_cols, genre, glossary_id,
-                    tag_shield_enabled, model_id, model_display_name, status,
-                    total_cues, completed_cues, self_healing_errors, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                    source_lang, target_lang, raw_header, raw_footer, ass_format_cols,
+                    genre, glossary_id, tag_shield_enabled, model_id, model_display_name,
+                    status, total_cues, completed_cues, self_healing_errors, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                 params![
                     job.summary.id,
                     job.summary.file_name,
                     job.summary.file_path,
                     job.summary.file_size_bytes,
                     job.summary.format,
+                    job.summary.source_lang,
+                    job.summary.target_lang,
                     job.raw_header,
                     job.raw_footer,
                     job.ass_format_cols,
@@ -637,7 +669,8 @@ impl Database {
     pub fn list_subtitle_jobs(&self) -> AppResult<Vec<SubtitleJobSummary>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, file_name, file_path, file_size_bytes, format, genre,
+                "SELECT id, file_name, file_path, file_size_bytes, format,
+                        source_lang, target_lang, genre,
                         glossary_id, tag_shield_enabled, model_id, model_display_name,
                         status, total_cues, completed_cues, self_healing_errors,
                         created_at, updated_at
@@ -772,7 +805,8 @@ impl Database {
     pub fn get_subtitle_job_record(&self, job_id: &str) -> AppResult<SubtitleJobRecord> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT id, file_name, file_path, file_size_bytes, format, genre,
+                "SELECT id, file_name, file_path, file_size_bytes, format,
+                        source_lang, target_lang, genre,
                         glossary_id, tag_shield_enabled, model_id, model_display_name,
                         status, total_cues, completed_cues, self_healing_errors,
                         created_at, updated_at, raw_header, raw_footer, ass_format_cols
@@ -783,9 +817,9 @@ impl Database {
                     let summary = map_subtitle_job_summary(row)?;
                     Ok(SubtitleJobRecord {
                         summary,
-                        raw_header: row.get(16)?,
-                        raw_footer: row.get(17)?,
-                        ass_format_cols: row.get(18)?,
+                        raw_header: row.get(18)?,
+                        raw_footer: row.get(19)?,
+                        ass_format_cols: row.get(20)?,
                     })
                 },
             )
@@ -801,7 +835,8 @@ impl Database {
     pub fn get_subtitle_job_summary(&self, job_id: &str) -> AppResult<SubtitleJobSummary> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT id, file_name, file_path, file_size_bytes, format, genre,
+                "SELECT id, file_name, file_path, file_size_bytes, format,
+                        source_lang, target_lang, genre,
                         glossary_id, tag_shield_enabled, model_id, model_display_name,
                         status, total_cues, completed_cues, self_healing_errors,
                         created_at, updated_at
@@ -822,6 +857,8 @@ impl Database {
     pub fn update_subtitle_job_options(
         &self,
         job_id: &str,
+        source_lang: &str,
+        target_lang: &str,
         genre: &str,
         glossary_id: Option<&str>,
         tag_shield_enabled: bool,
@@ -830,9 +867,17 @@ impl Database {
         self.with_conn(|conn| {
             let changed = conn.execute(
                 "UPDATE subtitle_jobs
-                 SET genre = ?1, glossary_id = ?2, tag_shield_enabled = ?3, updated_at = ?4
-                 WHERE id = ?5",
-                params![genre, glossary_id, tag_shield_enabled as i32, now, job_id],
+                 SET source_lang = ?1, target_lang = ?2, genre = ?3, glossary_id = ?4, tag_shield_enabled = ?5, updated_at = ?6
+                 WHERE id = ?7",
+                params![
+                    source_lang,
+                    target_lang,
+                    genre,
+                    glossary_id,
+                    tag_shield_enabled as i32,
+                    now,
+                    job_id
+                ],
             )?;
             if changed == 0 {
                 return Err(AppError::NotFound(format!("Subtitle job {job_id} not found")));
@@ -1005,7 +1050,8 @@ impl Database {
             }
 
             let summary = tx.query_row(
-                "SELECT id, file_name, file_path, file_size_bytes, format, genre,
+                "SELECT id, file_name, file_path, file_size_bytes, format,
+                        source_lang, target_lang, genre,
                         glossary_id, tag_shield_enabled, model_id, model_display_name,
                         status, total_cues, completed_cues, self_healing_errors,
                         created_at, updated_at
@@ -1195,12 +1241,14 @@ fn map_text_history(row: &Row<'_>) -> rusqlite::Result<TextHistoryItem> {
         id: row.get(0)?,
         source_text: row.get(1)?,
         translated_text: row.get(2)?,
-        tone: row.get(3)?,
-        model_id: row.get(4)?,
-        model_display_name: row.get(5)?,
-        ttft_ms: row.get(6)?,
-        tok_per_sec: row.get(7)?,
-        created_at: row.get(8)?,
+        source_lang: row.get(3)?,
+        target_lang: row.get(4)?,
+        tone: row.get(5)?,
+        model_id: row.get(6)?,
+        model_display_name: row.get(7)?,
+        ttft_ms: row.get(8)?,
+        tok_per_sec: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 
@@ -1211,17 +1259,19 @@ fn map_subtitle_job_summary(row: &Row<'_>) -> rusqlite::Result<SubtitleJobSummar
         file_path: row.get(2)?,
         file_size_bytes: row.get(3)?,
         format: row.get(4)?,
-        genre: row.get(5)?,
-        glossary_id: row.get(6)?,
-        tag_shield_enabled: row.get::<_, i32>(7)? != 0,
-        model_id: row.get(8)?,
-        model_display_name: row.get(9)?,
-        status: row.get(10)?,
-        total_cues: row.get(11)?,
-        completed_cues: row.get(12)?,
-        self_healing_errors: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
+        source_lang: row.get(5)?,
+        target_lang: row.get(6)?,
+        genre: row.get(7)?,
+        glossary_id: row.get(8)?,
+        tag_shield_enabled: row.get::<_, i32>(9)? != 0,
+        model_id: row.get(10)?,
+        model_display_name: row.get(11)?,
+        status: row.get(12)?,
+        total_cues: row.get(13)?,
+        completed_cues: row.get(14)?,
+        self_healing_errors: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 

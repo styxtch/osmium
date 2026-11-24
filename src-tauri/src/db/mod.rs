@@ -101,6 +101,8 @@ mod tests {
                 file_path: "D:\\subs\\ep01.ass".to_string(),
                 file_size_bytes: 1024,
                 format: "ass".to_string(),
+                source_lang: "ja".to_string(),
+                target_lang: "id".to_string(),
                 genre: "anime".to_string(),
                 glossary_id: Some("g1".to_string()),
                 tag_shield_enabled: true,
@@ -161,13 +163,74 @@ mod tests {
 
         let mut settings = db.get_settings().unwrap();
         assert_eq!(settings.display_mode, "standard");
+        assert_eq!(settings.auto_idle_unload_minutes, 10);
+        assert_eq!(settings.tts_provider, "native");
         settings.display_mode = "compact".to_string();
         settings.backend_override = "cpu".to_string();
         settings.ctx_size_override = "2048".to_string();
+        settings.auto_idle_unload_minutes = 15;
+        settings.tts_rate = 1.25;
         db.save_settings(&settings).unwrap();
 
         let reloaded = db.get_settings().unwrap();
         assert_eq!(reloaded, settings);
+
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn migrates_legacy_v1_database_non_destructively_to_v2() {
+        let dir = std::env::temp_dir().join(format!("osmium_mig_test_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("osmium.db");
+        let model_dir = dir.join("models");
+        let export_dir = dir.join("exports");
+
+        {
+            let mut conn = rusqlite::Connection::open(&db_path).unwrap();
+            migrations::configure_connection(&conn).unwrap();
+            let tx = conn.transaction().unwrap();
+            tx.execute_batch(
+                "
+                CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+                CREATE TABLE installed_models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, tier TEXT NOT NULL, file_path TEXT NOT NULL, file_size_bytes INTEGER NOT NULL, sha256 TEXT, quantization TEXT, is_byom INTEGER DEFAULT 0, block_count INTEGER, is_active INTEGER DEFAULT 0, created_at INTEGER NOT NULL);
+                CREATE TABLE model_downloads (model_id TEXT PRIMARY KEY, download_url TEXT NOT NULL, target_path TEXT NOT NULL, part_path TEXT NOT NULL, expected_sha256 TEXT NOT NULL, etag TEXT, total_bytes INTEGER NOT NULL, bytes_downloaded INTEGER DEFAULT 0, status TEXT NOT NULL, error_msg TEXT, updated_at INTEGER NOT NULL);
+                CREATE TABLE text_history (id TEXT PRIMARY KEY, source_text TEXT NOT NULL, translated_text TEXT NOT NULL, tone TEXT NOT NULL, model_id TEXT NOT NULL, model_display_name TEXT NOT NULL, ttft_ms INTEGER, tok_per_sec REAL, created_at INTEGER NOT NULL);
+                CREATE TABLE glossaries (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+                CREATE TABLE glossary_entries (id TEXT PRIMARY KEY, glossary_id TEXT NOT NULL REFERENCES glossaries(id) ON DELETE CASCADE, source_term TEXT NOT NULL, target_term TEXT NOT NULL, case_sensitive INTEGER DEFAULT 0);
+                CREATE TABLE subtitle_jobs (id TEXT PRIMARY KEY, file_name TEXT NOT NULL, file_path TEXT NOT NULL, file_size_bytes INTEGER NOT NULL, format TEXT NOT NULL, raw_header TEXT, raw_footer TEXT, ass_format_cols TEXT, genre TEXT NOT NULL, glossary_id TEXT REFERENCES glossaries(id) ON DELETE SET NULL, tag_shield_enabled INTEGER DEFAULT 1, model_id TEXT NOT NULL, model_display_name TEXT NOT NULL, status TEXT NOT NULL, total_cues INTEGER NOT NULL, completed_cues INTEGER DEFAULT 0, self_healing_errors INTEGER DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+                CREATE TABLE subtitle_cues (job_id TEXT NOT NULL REFERENCES subtitle_jobs(id) ON DELETE CASCADE, cue_index INTEGER NOT NULL, cue_type TEXT NOT NULL DEFAULT 'dialogue', start_time TEXT NOT NULL, end_time TEXT NOT NULL, meta_json TEXT, glossary_matches_json TEXT, original_text TEXT NOT NULL, translated_text TEXT, batch_number INTEGER, status TEXT NOT NULL, warning_msg TEXT, PRIMARY KEY (job_id, cue_index));
+                INSERT INTO text_history (id, source_text, translated_text, tone, model_id, model_display_name, ttft_ms, tok_per_sec, created_at)
+                VALUES ('h1', 'Hello', 'Halo', 'natural', 'qwen3-8b', 'Qwen 3 8B', 300, 40.0, 123);
+                INSERT INTO subtitle_jobs (id, file_name, file_path, file_size_bytes, format, genre, tag_shield_enabled, model_id, model_display_name, status, total_cues, completed_cues, self_healing_errors, created_at, updated_at)
+                VALUES ('j1', 'old.srt', 'D:\\old.srt', 100, 'srt', 'film', 1, 'qwen3-8b', 'Qwen 3 8B', 'paused', 10, 5, 0, 100, 200);
+                ",
+            )
+            .unwrap();
+            tx.pragma_update(None, "user_version", 1).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let db = Database::open(&db_path, &model_dir, &export_dir).expect("migrate v1 -> v2");
+        let version: i32 = db
+            .with_conn(|c| Ok(c.query_row("PRAGMA user_version;", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(version, 2);
+
+        let history = db.list_text_history(None, 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].source_lang, "en");
+        assert_eq!(history[0].target_lang, "id");
+
+        let jobs = db.list_subtitle_jobs().unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].source_lang, "en");
+        assert_eq!(jobs[0].target_lang, "id");
+
+        let settings = db.get_settings().unwrap();
+        assert_eq!(settings.auto_idle_unload_minutes, 10);
+        assert_eq!(settings.tts_provider, "native");
 
         drop(db);
         let _ = fs::remove_dir_all(&dir);

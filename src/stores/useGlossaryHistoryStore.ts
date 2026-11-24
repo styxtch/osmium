@@ -15,6 +15,7 @@ interface GlossaryHistoryState {
   history: TextHistoryItem[];
   historyQuery: string;
   loading: boolean;
+  notice: string | null;
   error: AppErrorPayload | null;
 
   fetchGlossaries: () => Promise<void>;
@@ -30,10 +31,20 @@ interface GlossaryHistoryState {
     caseSensitive: boolean;
   }) => Promise<boolean>;
   deleteEntry: (id: string, glossaryId: string) => Promise<void>;
+  importGlossary: (
+    filePath: string,
+    targetGlossaryId?: string | null
+  ) => Promise<void>;
+  exportGlossary: (
+    glossaryId: string,
+    destPath: string,
+    format?: "json" | "csv"
+  ) => Promise<void>;
 
   fetchHistory: (query?: string) => Promise<void>;
   setHistoryQuery: (query: string) => void;
   deleteHistoryItem: (id: string) => Promise<void>;
+  clearNotice: () => void;
   clearError: () => void;
 }
 
@@ -45,6 +56,7 @@ export const useGlossaryHistoryStore = create<GlossaryHistoryState>(
     history: [],
     historyQuery: "",
     loading: false,
+    notice: null,
     error: null,
 
     fetchGlossaries: async () => {
@@ -139,6 +151,39 @@ export const useGlossaryHistoryStore = create<GlossaryHistoryState>(
       }
     },
 
+    importGlossary: async (filePath, targetGlossaryId) => {
+      set({ error: null, notice: null });
+      try {
+        const result = await ipc.importGlossary({
+          filePath,
+          targetGlossaryId: targetGlossaryId ?? undefined,
+        });
+        await get().fetchGlossaries();
+        await get().selectGlossary(result.glossary.id);
+        const skippedNote =
+          result.skipped_count > 0 ? ` (${result.skipped_count} skipped)` : "";
+        set({
+          notice: `Imported ${result.imported_count} terms${skippedNote} into "${result.glossary.name}".`,
+        });
+      } catch (err) {
+        set({ error: parseAppError(err) });
+      }
+    },
+
+    exportGlossary: async (glossaryId, destPath, format) => {
+      set({ error: null, notice: null });
+      try {
+        const savedPath = await ipc.exportGlossary(
+          glossaryId,
+          destPath,
+          format
+        );
+        set({ notice: `Exported glossary to ${savedPath}` });
+      } catch (err) {
+        set({ error: parseAppError(err) });
+      }
+    },
+
     fetchHistory: async (query) => {
       const q = query ?? get().historyQuery;
       try {
@@ -165,6 +210,7 @@ export const useGlossaryHistoryStore = create<GlossaryHistoryState>(
       }
     },
 
+    clearNotice: () => set({ notice: null }),
     clearError: () => set({ error: null }),
   })
 );
